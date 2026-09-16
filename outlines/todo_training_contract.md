@@ -147,7 +147,8 @@ return self.gain.value * x.reshape(...)
 
 ## A. 输入：57 维
 
-新布局 `[left_data(25), right_data(25), gripper_width(1), flange_wrench(6)]`，全部在**去零之后**（见 C 节）。
+新布局 `[left_data(25), right_data(25), gripper_width(1), force_torque_zeroed(6)]`。
+末端那 6 维直接读**已经归零好的** `force_torque_zeroed` 字段；指尖那 50 维要在转换脚本里自己归零（见 C 节）。
 
 | 文件 | 改动 |
 |---|---|
@@ -185,17 +186,25 @@ KL 那边不用改：`diagonal_gaussian_kl` 对任意维度成立，1 维时"除
 
 ---
 
-## C. 每个 episode 归零（目前**完全没有实现**，必须补）
+## C. 逐 episode 归零：末端**已经做了**，指尖**还没有**
 
-论文附录声称"法兰和指尖通道都用每个 episode 开头的静止张开窗口归零"，但管线里没有任何地方做这件事：
+**更正（2026-09-16 核实）**：2026-09-05 之后的后处理流水线（`postprocess_2026*.py` 的
+`add_zeroed_force()`）已经对末端力做了逐 episode 归零——用 episode 开头静止张开窗口的**中位数**作为
+offset，写出字段 **`force_torque_zeroed`**，并附带方法、窗口范围、阈值等元数据；
+`zeroing_metadata` 里明确写着 `"recommended_training_field": "force_torque_zeroed"`。
+三批数据（0905 / 0911 / carton）都有这个字段。
 
-- `_data` 只在驱动启动时去过一次基线，session 内的漂移没有处理；
-- 末端 wrench 完全没去偏，静止时 fx 就有约 −9.5 N 的工具重力项。
+因此：
 
-要求：在转换脚本里，对每条 episode 取开头一段**夹爪张开且静止**的窗口（建议 `stage == "prepare"` 且 `cmd_speed_l` 全为 0 的前 N 帧，N 取 10–20），算均值后从该 episode 的
-`_data`（50 维）和 `force_torque`（6 维）中减掉。窗口不足 N 帧的 episode 记为异常并排除。
+| 通道 | 现状 | 要做什么 |
+|---|---|---|
+| 末端 wrench | ✅ 已有 `force_torque_zeroed` | **输入直接用这个字段**，不要用原始 `force_torque`（原始值静止时 fx 就有约 −9.5 N 的工具重力项） |
+| 指尖 `_data` | ❌ 没有任何 `tactile_*_zeroed` 字段 | **仍需在转换脚本里逐 episode 归零**：取 `stage == "prepare"` 且 `cmd_speed_l` 全为 0 的前 10–20 帧求均值后减掉；窗口不足的 episode 记为异常并排除 |
 
-末端 wrench 的重力投影随姿态变化，开头归零只消掉初始姿态那一份。**不做完整负载辨识**：运动轮廓固定，姿态项在两种条件之间是共同的，且 TCP 旋转向量本来就在 state 里。附录要写明这一点。
+`_data` 只在驱动启动时去过一次基线，session 内的漂移没有处理，所以这一步不能省——目标标量 grip 就是从它算出来的。
+
+末端 wrench 的重力投影随姿态变化，开头归零只消掉初始姿态那一份。**不做完整负载辨识**：
+运动轮廓固定，姿态项在两种条件之间共同，且 TCP 旋转向量本来就在 state 里。论文附录要写明这一点。
 
 ---
 
@@ -228,8 +237,11 @@ KL 那边不用改：`diagonal_gaussian_kl` 对任意维度成立，1 维时"除
 
 ## E. Task 2（纸盒）分组
 
-1. **不能靠 prompt 识别条件**：空盒和满盒指令完全相同，`fruit_from_prompt()` 直接失效。
-   采集时就要把条件写进数据（建议每帧 `group_condition ∈ {box_empty, box_filled, box_half}`）。
+1. **条件字段：纸盒批次已经做好了**（2026-09-16 核实）。carton 数据里有 `episode_context`
+   以及 `group_load_condition` / `group_object_category` / `group_object_id` 三个字段，
+   `physical_condition()` 从 `episode_context` 读取，不是从 prompt 猜的。
+   **但水果批次（0905/0911）只有 `group_fruit`，没有 load_condition。**
+   所以标签脚本要同时支持两种：水果的 condition = `group_fruit`，纸盒的 condition = `group_load_condition`。
 2. group key 从 `(task, fruit, stage)` 泛化为 `(task, condition, stage)`，涉及
    `add_group_prototype_labels.py` 和 `build_safe_group_prototypes.py`（**两份副本**：post-process 目录和
    `examples/force/` 各一份）里的 `FRUITS`、`GROUP_KEYS`、`group_fruit`。

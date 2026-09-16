@@ -1,3 +1,8 @@
+> **部分内容已过时（2026-09-16）。**
+> 本文描述的训练契约（输入 12 维、目标 6 维、四阶段分组）已被 `outlines/todo_training_contract.md` 取代：
+> 输入改为 57 维（原始触觉电压 + 开度 + 已归零的末端力），目标改为 1 维标量，
+> 分布目标按 grasp / hold 两组统计。架构与文件地图部分仍然有效。
+
 # DraftVLA — Implementation Summary
 
 **DraftVLA (Damage-Aware ForceVLA)** extends π₀ (flow-matching VLA) with a force/torque
