@@ -1,0 +1,275 @@
+02:45:06.307 [I] Running on: lrdn3400.leonardo.local                                              (2219957:train.py:226)
+INFO:2026-09-05 02:45:06,494:jax._src.xla_bridge:925: Unable to initialize backend 'rocm': module 'jaxlib.xla_extension' has no attribute 'GpuAllocatorConfig'
+02:45:06.494 [I] Unable to initialize backend 'rocm': module 'jaxlib.xla_extension' has no attribute 'GpuAllocatorConfig' (2219957:xla_bridge.py:925)
+INFO:2026-09-05 02:45:06,495:jax._src.xla_bridge:925: Unable to initialize backend 'tpu': INTERNAL: Failed to open libtpu.so: libtpu.so: cannot open shared object file: No such file or directory
+02:45:06.495 [I] Unable to initialize backend 'tpu': INTERNAL: Failed to open libtpu.so: libtpu.so: cannot open shared object file: No such file or directory (2219957:xla_bridge.py:925)
+02:45:14.072 [I] Wiped checkpoint directory /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke (2219957:checkpoints.py:29)
+02:45:14.089 [I] Created BasePyTreeCheckpointHandler: use_ocdbt=True, use_zarr3=False, pytree_metadata_options=PyTreeMetadataOptions(support_rich_types=False), array_metadata_store=<orbax.checkpoint._src.metadata.array_metadata_store.Store object at 0x147a53fe28d0> (2219957:base_pytree_checkpoint_handler.py:334)
+02:45:14.089 [I] Created BasePyTreeCheckpointHandler: use_ocdbt=True, use_zarr3=False, pytree_metadata_options=PyTreeMetadataOptions(support_rich_types=False), array_metadata_store=<orbax.checkpoint._src.metadata.array_metadata_store.Store object at 0x147a53fe28d0> (2219957:base_pytree_checkpoint_handler.py:334)
+02:45:14.089 [I] [thread=MainThread] Failed to get flag value for EXPERIMENTAL_ORBAX_USE_DISTRIBUTED_PROCESS_ID. (2219957:multihost.py:390)
+02:45:14.089 [I] [process=0][thread=MainThread] CheckpointManager init: checkpointers=None, item_names=None, item_handlers={'assets': <openpi.training.checkpoints.CallbackHandler object at 0x147a1a5d08d0>, 'train_state': <orbax.checkpoint._src.handlers.pytree_checkpoint_handler.PyTreeCheckpointHandler object at 0x147a1a44c890>, 'params': <orbax.checkpoint._src.handlers.pytree_checkpoint_handler.PyTreeCheckpointHandler object at 0x147a1a57d0d0>}, handler_registry=None (2219957:checkpoint_manager.py:620)
+02:45:14.090 [I] Deferred registration for item: "assets". Adding handler `<openpi.training.checkpoints.CallbackHandler object at 0x147a1a5d08d0>` for item "assets" and save args `<class 'openpi.training.checkpoints.CallbackSave'>` and restore args `<class 'openpi.training.checkpoints.CallbackRestore'>` to `_handler_registry`. (2219957:composite_checkpoint_handler.py:234)
+02:45:14.090 [I] Deferred registration for item: "train_state". Adding handler `<orbax.checkpoint._src.handlers.pytree_checkpoint_handler.PyTreeCheckpointHandler object at 0x147a1a44c890>` for item "train_state" and save args `<class 'orbax.checkpoint._src.handlers.pytree_checkpoint_handler.PyTreeSaveArgs'>` and restore args `<class 'orbax.checkpoint._src.handlers.pytree_checkpoint_handler.PyTreeRestoreArgs'>` to `_handler_registry`. (2219957:composite_checkpoint_handler.py:234)
+02:45:14.090 [I] Deferred registration for item: "params". Adding handler `<orbax.checkpoint._src.handlers.pytree_checkpoint_handler.PyTreeCheckpointHandler object at 0x147a1a57d0d0>` for item "params" and save args `<class 'orbax.checkpoint._src.handlers.pytree_checkpoint_handler.PyTreeSaveArgs'>` and restore args `<class 'orbax.checkpoint._src.handlers.pytree_checkpoint_handler.PyTreeRestoreArgs'>` to `_handler_registry`. (2219957:composite_checkpoint_handler.py:234)
+02:45:14.090 [I] Deferred registration for item: "metrics". Adding handler `<orbax.checkpoint._src.handlers.json_checkpoint_handler.JsonCheckpointHandler object at 0x147a1a44fd90>` for item "metrics" and save args `<class 'orbax.checkpoint._src.handlers.json_checkpoint_handler.JsonSaveArgs'>` and restore args `<class 'orbax.checkpoint._src.handlers.json_checkpoint_handler.JsonRestoreArgs'>` to `_handler_registry`. (2219957:composite_checkpoint_handler.py:234)
+02:45:14.090 [I] Initialized registry DefaultCheckpointHandlerRegistry({('assets', <class 'openpi.training.checkpoints.CallbackSave'>): <openpi.training.checkpoints.CallbackHandler object at 0x147a1a5d08d0>, ('assets', <class 'openpi.training.checkpoints.CallbackRestore'>): <openpi.training.checkpoints.CallbackHandler object at 0x147a1a5d08d0>, ('train_state', <class 'orbax.checkpoint._src.handlers.pytree_checkpoint_handler.PyTreeSaveArgs'>): <orbax.checkpoint._src.handlers.pytree_checkpoint_handler.PyTreeCheckpointHandler object at 0x147a1a44c890>, ('train_state', <class 'orbax.checkpoint._src.handlers.pytree_checkpoint_handler.PyTreeRestoreArgs'>): <orbax.checkpoint._src.handlers.pytree_checkpoint_handler.PyTreeCheckpointHandler object at 0x147a1a44c890>, ('params', <class 'orbax.checkpoint._src.handlers.pytree_checkpoint_handler.PyTreeSaveArgs'>): <orbax.checkpoint._src.handlers.pytree_checkpoint_handler.PyTreeCheckpointHandler object at 0x147a1a57d0d0>, ('params', <class 'orbax.checkpoint._src.handlers.pytree_checkpoint_handler.PyTreeRestoreArgs'>): <orbax.checkpoint._src.handlers.pytree_checkpoint_handler.PyTreeCheckpointHandler object at 0x147a1a57d0d0>, ('metrics', <class 'orbax.checkpoint._src.handlers.json_checkpoint_handler.JsonSaveArgs'>): <orbax.checkpoint._src.handlers.json_checkpoint_handler.JsonCheckpointHandler object at 0x147a1a44fd90>, ('metrics', <class 'orbax.checkpoint._src.handlers.json_checkpoint_handler.JsonRestoreArgs'>): <orbax.checkpoint._src.handlers.json_checkpoint_handler.JsonCheckpointHandler object at 0x147a1a44fd90>}). (2219957:composite_checkpoint_handler.py:502)
+02:45:14.090 [I] orbax-checkpoint version: 0.11.13                                                (2219957:abstract_checkpointer.py:35)
+02:45:14.090 [I] [process=0][thread=MainThread] Using barrier_sync_fn: <function get_barrier_sync_fn.<locals>.<lambda> at 0x147a0819b9c0> timeout: 7200 secs and primary_host=0 for async checkpoint writes (2219957:async_checkpointer.py:170)
+02:45:14.091 [I] Found 0 checkpoint steps in /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke (2219957:checkpoint_manager.py:1701)
+02:45:14.091 [I] [process=0][thread=MainThread] CheckpointManager created,  primary_host=0, CheckpointManagerOptions=CheckpointManagerOptions(save_interval_steps=1, max_to_keep=1, keep_time_interval=None, keep_period=5000, should_keep_fn=None, best_fn=None, best_mode='max', keep_checkpoints_without_metrics=True, step_prefix=None, step_format_fixed_length=None, step_name_format=None, create=False, cleanup_tmp_directories=False, save_on_steps=frozenset(), single_host_load_and_broadcast=False, todelete_subdir=None, enable_background_delete=False, read_only=False, enable_async_checkpointing=True, async_options=AsyncOptions(timeout_secs=7200, barrier_sync_fn=None, post_finalization_callback=None, create_directories_asynchronously=True), multiprocessing_options=MultiprocessingOptions(primary_host=0, active_processes=None, barrier_sync_key_prefix=None), should_save_fn=None, file_options=FileOptions(path_permission_mode=None), save_root_metadata=True, temporary_path_class=None, save_decision_policy=None, prevent_write_metrics=False), root_directory=/leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke: <orbax.checkpoint.checkpoint_manager.CheckpointManager object at 0x147a1a43c0d0> (2219957:checkpoint_manager.py:801)
+02:45:14.182 [I] Loaded norm stats from /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/assets/pi0_draftvla/draftvla/fruits_tactile (2219957:config.py:198)
+02:45:14.184 [I] data_config: DataConfig(repo_id='draftvla/fruits_tactile', asset_id='draftvla/fruits_tactile', norm_stats={'state': NormStats(mean=array([-0.14361809, -0.63133162,  0.36667278, -3.02399969,  0.11086973,
+       -0.00631888,  0.05225374]), std=array([0.13703461, 0.02496927, 0.09173046, 0.1515781 , 0.81825882,
+       0.00137091, 0.01246427]), q01=array([-0.31468697, -0.67706087,  0.25896147, -3.13847017, -1.46882474,
+       -0.00836898,  0.02457255]), q99=array([ 0.04427932, -0.55313456,  0.55867003, -2.61089007,  1.74586565,
+       -0.00306794,  0.06427441])), 'actions': NormStats(mean=array([ 3.36979749e-03, -9.23034968e-05, -8.83374596e-05,  0.00000000e+00,
+        0.00000000e+00,  9.31840972e-04,  5.21257445e-02]), std=array([0.0140352 , 0.00512102, 0.01917135, 0.        , 0.        ,
+       0.05739383, 0.013229  ]), q01=array([-0.02814 , -0.02194 , -0.05    ,  0.      ,  0.      , -0.038   ,
+        0.023276]), q99=array([0.04998   , 0.01696   , 0.04998   , 0.        , 0.        ,
+       0.2314    , 0.06499165])), 'force': NormStats(mean=array([-1.6903348 , -0.29190141,  1.26227963,  9.2474699 , 10.56183338,
+       22.37337875,  0.45592088,  0.13459487,  0.54204279, -4.57370663,
+       -1.74926817, -9.2001152 ]), std=array([ 4.40693998,  1.80732882,  2.51759648, 26.99091148, 30.5603199 ,
+       37.25593567,  3.43113041,  1.63881373,  1.83839381, 27.85054588,
+       44.12256241, 36.88661194]), q01=array([ -18.33266522,   -8.47771107,    0.        ,  -60.31688306,
+        -40.9446779 ,  -23.27473378,   -9.64219832,   -5.44439974,
+         -2.91787003, -125.12988472, -133.34655802, -170.35161613]), q99=array([ 13.72982737,   4.42793626,  11.56160739, 130.05283624,
+       151.15858492, 159.60447344,  12.52670042,   6.95179918,
+         7.46687412,  52.38472002, 187.4338248 ,  92.23848976]))}, repack_transforms=Group(inputs=[RepackTransform(structure={'observation/image': 'image', 'observation/wrist_image': 'wrist_image', 'observation/state': 'state', 'observation/gripper_wrench': 'gripper_wrench', 'actions': 'actions', 'prompt': 'prompt', 'gt_safe_distribution': 'gt_safe_distribution', 'soft_prototype_target': 'soft_prototype_target', 'supervision_valid': 'supervision_valid', 'group_id': 'group_id'})], outputs=()), data_transforms=Group(inputs=[DraftVLAInputs(model_type=<ModelType.PI0: 'pi0'>)], outputs=[DraftVLAOutputs()]), model_transforms=Group(inputs=[InjectDefaultPrompt(prompt=None), ResizeImages(height=224, width=224), TokenizePrompt(tokenizer=<openpi.models.tokenizer.PaligemmaTokenizer object at 0x147a1b073450>, discrete_state_input=False), PadStatesAndActions(model_action_dim=32)], outputs=()), use_quantile_norm=False, action_sequence_keys=('actions',), prompt_from_task=True, rlds_data_dir=None, action_space=None, datasets=()) (2219957:data_loader.py:243)
+02:45:20.635 [I] local_batch_size: 4                                                              (2219957:data_loader.py:324)
+02:46:00.352 [I] Initialized data loader:
+[0].images['base_0_rgb']: (4, 224, 224, 3)@float32
+[0].images['left_wrist_0_rgb']: (4, 224, 224, 3)@float32
+[0].images['right_wrist_0_rgb']: (4, 224, 224, 3)@float32
+[0].image_masks['base_0_rgb']: (4,)@bool
+[0].image_masks['left_wrist_0_rgb']: (4,)@bool
+[0].image_masks['right_wrist_0_rgb']: (4,)@bool
+[0].state: (4, 32)@float32
+[0].tokenized_prompt: (4, 48)@int32
+[0].tokenized_prompt_mask: (4, 48)@bool
+[0].force: (4, 12)@float32
+[1]: (4, 8, 32)@float32
+[2]['group_id']: (4,)@int32
+[2]['gt_safe_distribution']: (4, 12)@float32
+[2]['soft_prototype_target']: (4, 4)@float32
+[2]['supervision_valid']: (4,)@bool (2219957:train.py:258)
+02:46:01.700 [I] Created BasePyTreeCheckpointHandler: use_ocdbt=True, use_zarr3=False, pytree_metadata_options=PyTreeMetadataOptions(support_rich_types=False), array_metadata_store=<orbax.checkpoint._src.metadata.array_metadata_store.Store object at 0x147a53fe28d0> (2219957:base_pytree_checkpoint_handler.py:334)
+02:46:03.069 [I] Restoring checkpoint from /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/.cache/openpi/openpi-assets/checkpoints/pi0_base/params. (2219957:checkpointer.py:298)
+02:46:10.689 [I] [process=0] /jax/checkpoint/read/bytes_per_sec: 1.6 GiB/s (total bytes: 12.1 GiB) (time elapsed: 7 seconds) (per-host) (2219957:base_pytree_checkpoint_handler.py:114)
+02:46:10.690 [I] Finished restoring checkpoint in 7.62 seconds from /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/.cache/openpi/openpi-assets/checkpoints/pi0_base/params. (2219957:checkpointer.py:309)
+02:46:18.968 [I] Initialized train state:
+['PaliGemma']['img']['Transformer']['encoder_norm']['bias'].value: (1152,)@bfloat16
+['PaliGemma']['img']['Transformer']['encoder_norm']['scale'].value: (1152,)@bfloat16
+['PaliGemma']['img']['Transformer']['encoderblock']['LayerNorm_0']['bias'].value: (27, 1152)@bfloat16
+['PaliGemma']['img']['Transformer']['encoderblock']['LayerNorm_0']['scale'].value: (27, 1152)@bfloat16
+['PaliGemma']['img']['Transformer']['encoderblock']['LayerNorm_1']['bias'].value: (27, 1152)@bfloat16
+['PaliGemma']['img']['Transformer']['encoderblock']['LayerNorm_1']['scale'].value: (27, 1152)@bfloat16
+['PaliGemma']['img']['Transformer']['encoderblock']['MlpBlock_0']['Dense_0']['bias'].value: (27, 4304)@bfloat16
+['PaliGemma']['img']['Transformer']['encoderblock']['MlpBlock_0']['Dense_0']['kernel'].value: (27, 1152, 4304)@bfloat16
+['PaliGemma']['img']['Transformer']['encoderblock']['MlpBlock_0']['Dense_1']['bias'].value: (27, 1152)@bfloat16
+['PaliGemma']['img']['Transformer']['encoderblock']['MlpBlock_0']['Dense_1']['kernel'].value: (27, 4304, 1152)@bfloat16
+['PaliGemma']['img']['Transformer']['encoderblock']['MultiHeadDotProductAttention_0']['key']['bias'].value: (27, 16, 72)@bfloat16
+['PaliGemma']['img']['Transformer']['encoderblock']['MultiHeadDotProductAttention_0']['key']['kernel'].value: (27, 1152, 16, 72)@bfloat16
+['PaliGemma']['img']['Transformer']['encoderblock']['MultiHeadDotProductAttention_0']['out']['bias'].value: (27, 1152)@bfloat16
+['PaliGemma']['img']['Transformer']['encoderblock']['MultiHeadDotProductAttention_0']['out']['kernel'].value: (27, 16, 72, 1152)@bfloat16
+['PaliGemma']['img']['Transformer']['encoderblock']['MultiHeadDotProductAttention_0']['query']['bias'].value: (27, 16, 72)@bfloat16
+['PaliGemma']['img']['Transformer']['encoderblock']['MultiHeadDotProductAttention_0']['query']['kernel'].value: (27, 1152, 16, 72)@bfloat16
+['PaliGemma']['img']['Transformer']['encoderblock']['MultiHeadDotProductAttention_0']['value']['bias'].value: (27, 16, 72)@bfloat16
+['PaliGemma']['img']['Transformer']['encoderblock']['MultiHeadDotProductAttention_0']['value']['kernel'].value: (27, 1152, 16, 72)@bfloat16
+['PaliGemma']['img']['embedding']['bias'].value: (1152,)@bfloat16
+['PaliGemma']['img']['embedding']['kernel'].value: (14, 14, 3, 1152)@bfloat16
+['PaliGemma']['img']['head']['bias'].value: (2048,)@bfloat16
+['PaliGemma']['img']['head']['kernel'].value: (1152, 2048)@bfloat16
+['PaliGemma']['img']['pos_embedding'].value: (1, 256, 1152)@bfloat16
+['PaliGemma']['llm']['embedder']['input_embedding'].value: (257152, 2048)@bfloat16
+['PaliGemma']['llm']['final_norm']['scale'].value: (2048,)@bfloat16
+['PaliGemma']['llm']['final_norm_1']['scale'].value: (1024,)@float32
+['PaliGemma']['llm']['layers']['attn']['attn_vec_einsum']['w'].value: (18, 8, 256, 2048)@bfloat16
+['PaliGemma']['llm']['layers']['attn']['attn_vec_einsum_1']['w'].value: (18, 8, 256, 1024)@float32
+['PaliGemma']['llm']['layers']['attn']['kv_einsum']['w'].value: (18, 2, 1, 2048, 256)@bfloat16
+['PaliGemma']['llm']['layers']['attn']['kv_einsum_1']['w'].value: (18, 2, 1, 1024, 256)@float32
+['PaliGemma']['llm']['layers']['attn']['q_einsum']['w'].value: (18, 8, 2048, 256)@bfloat16
+['PaliGemma']['llm']['layers']['attn']['q_einsum_1']['w'].value: (18, 8, 1024, 256)@float32
+['PaliGemma']['llm']['layers']['mlp']['gating_einsum'].value: (18, 2, 2048, 16384)@bfloat16
+['PaliGemma']['llm']['layers']['mlp']['linear'].value: (18, 16384, 2048)@bfloat16
+['PaliGemma']['llm']['layers']['mlp_1']['gating_einsum'].value: (18, 2, 1024, 4096)@float32
+['PaliGemma']['llm']['layers']['mlp_1']['linear'].value: (18, 4096, 1024)@float32
+['PaliGemma']['llm']['layers']['pre_attention_norm']['scale'].value: (18, 2048)@bfloat16
+['PaliGemma']['llm']['layers']['pre_attention_norm_1']['scale'].value: (18, 1024)@float32
+['PaliGemma']['llm']['layers']['pre_ffw_norm']['scale'].value: (18, 2048)@bfloat16
+['PaliGemma']['llm']['layers']['pre_ffw_norm_1']['scale'].value: (18, 1024)@float32
+['action_in_proj']['bias'].value: (1024,)@float32
+['action_in_proj']['kernel'].value: (32, 1024)@float32
+['action_out_proj']['bias'].value: (32,)@float32
+['action_out_proj']['kernel'].value: (1024, 32)@float32
+['action_time_mlp_in']['bias'].value: (1024,)@float32
+['action_time_mlp_in']['kernel'].value: (2048, 1024)@float32
+['action_time_mlp_out']['bias'].value: (1024,)@float32
+['action_time_mlp_out']['kernel'].value: (1024, 1024)@float32
+['force_proj']['bias'].value: (2048,)@float32
+['force_proj']['kernel'].value: (12, 2048)@float32
+['fvlmoe']['exp_w1'].value: (4, 2048, 2048)@float32
+['fvlmoe']['exp_w2'].value: (4, 2048, 2048)@float32
+['fvlmoe']['ffn_in']['bias'].value: (2048,)@float32
+['fvlmoe']['ffn_in']['kernel'].value: (2048, 2048)@float32
+['fvlmoe']['ffn_out']['bias'].value: (2048,)@float32
+['fvlmoe']['ffn_out']['kernel'].value: (2048, 2048)@float32
+['fvlmoe']['k_proj']['bias'].value: (2048,)@float32
+['fvlmoe']['k_proj']['kernel'].value: (2048, 2048)@float32
+['fvlmoe']['norm_attn']['bias'].value: (2048,)@float32
+['fvlmoe']['norm_attn']['scale'].value: (2048,)@float32
+['fvlmoe']['norm_ffn']['bias'].value: (2048,)@float32
+['fvlmoe']['norm_ffn']['scale'].value: (2048,)@float32
+['fvlmoe']['norm_moe']['bias'].value: (2048,)@float32
+['fvlmoe']['norm_moe']['scale'].value: (2048,)@float32
+['fvlmoe']['o_proj']['bias'].value: (2048,)@float32
+['fvlmoe']['o_proj']['kernel'].value: (2048, 2048)@float32
+['fvlmoe']['out_proj']['bias'].value: (1024,)@float32
+['fvlmoe']['out_proj']['kernel'].value: (2048, 1024)@float32
+['fvlmoe']['q_proj']['bias'].value: (2048,)@float32
+['fvlmoe']['q_proj']['kernel'].value: (2048, 2048)@float32
+['fvlmoe']['router']['bias'].value: (4,)@float32
+['fvlmoe']['router']['kernel'].value: (2048, 4)@float32
+['fvlmoe']['v_proj']['bias'].value: (2048,)@float32
+['fvlmoe']['v_proj']['kernel'].value: (2048, 2048)@float32
+['phy_action_proj']['fc_in']['bias'].value: (512,)@float32
+['phy_action_proj']['fc_in']['kernel'].value: (128, 512)@float32
+['phy_action_proj']['fc_out']['bias'].value: (8192,)@float32
+['phy_action_proj']['fc_out']['kernel'].value: (512, 8192)@float32
+['phy_dist_head']['fc_in']['bias'].value: (256,)@float32
+['phy_dist_head']['fc_in']['kernel'].value: (128, 256)@float32
+['phy_dist_head']['fc_out']['bias'].value: (12,)@float32
+['phy_dist_head']['fc_out']['kernel'].value: (256, 12)@float32
+['phy_proj']['fc_in']['bias'].value: (512,)@float32
+['phy_proj']['fc_in']['kernel'].value: (2048, 512)@float32
+['phy_proj']['fc_out']['bias'].value: (128,)@float32
+['phy_proj']['fc_out']['kernel'].value: (512, 128)@float32
+['phy_proj']['norm']['bias'].value: (512,)@float32
+['phy_proj']['norm']['scale'].value: (512,)@float32
+['phy_proto_cls']['fc_in']['bias'].value: (128,)@float32
+['phy_proto_cls']['fc_in']['kernel'].value: (128, 128)@float32
+['phy_proto_cls']['fc_out']['bias'].value: (4,)@float32
+['phy_proto_cls']['fc_out']['kernel'].value: (128, 4)@float32
+['state_proj']['bias'].value: (1024,)@float32
+['state_proj']['kernel'].value: (32, 1024)@float32 (2219957:train.py:269)
+02:46:18.981 [I] Progress on: -/20 rate:- remaining:? elapsed:00:00 postfix:-                     (2219957:tqdm_logging.py:145)
+02:46:42.513 [I] Progress on: -/20 rate:- remaining:? elapsed:00:23 postfix:-                     (2219957:tqdm_logging.py:145)
+Step 0: frac_valid=0.5000, g_fvl_rms=1.9447, g_phy_rel=0.0237, g_phy_rms=0.0461, gnorm_force_proj=0.1808, gnorm_fvlmoe=48.9967, gnorm_phy_action_proj=0.2697, gnorm_phy_dist_head=1.2823, gnorm_phy_proj=1.9109, gnorm_phy_proto_cls=0.0340, grad_norm=58.3556, kl_fx=0.9115, kl_fy=0.6059, kl_fz=0.8163, kl_tx=1.3294, kl_ty=0.1511, kl_tz=2.0024, lambda_proto=0.0500, loss=4.9514, loss_dist=0.9694, loss_dist_baseline=0.4287, loss_flow=3.9130, loss_proto=1.3804, loss_proto_excess=1.3798, lr=0.0000, mu_pred_mean=12.1468, num_valid=2.0000, param_norm=1392.8442, proto_acc=0.5000, proto_entropy=1.3858, sigma_pred_mean=11.6148, z_phy_cos=0.3197, z_phy_norm=1.0000
+Step 1: frac_valid=0.7500, g_fvl_rms=1.9698, g_phy_rel=0.0228, g_phy_rms=0.0450, gnorm_force_proj=0.2918, gnorm_fvlmoe=42.3423, gnorm_phy_action_proj=0.2181, gnorm_phy_dist_head=1.6994, gnorm_phy_proj=2.6913, gnorm_phy_proto_cls=0.0221, grad_norm=50.0416, kl_fx=2.0884, kl_fy=1.1530, kl_fz=0.7524, kl_tx=1.7386, kl_ty=0.3271, kl_tz=3.1012, lambda_proto=0.0500, loss=4.1491, loss_dist=1.5268, loss_dist_baseline=0.6394, loss_flow=2.5538, loss_proto=1.3703, loss_proto_excess=1.3185, lr=0.0000, mu_pred_mean=12.0470, num_valid=3.0000, param_norm=1392.8442, proto_acc=0.6667, proto_entropy=1.3861, sigma_pred_mean=11.5033, z_phy_cos=0.2557, z_phy_norm=1.0000
+Step 2: frac_valid=0.7500, g_fvl_rms=1.9293, g_phy_rel=0.0234, g_phy_rms=0.0451, gnorm_force_proj=0.1587, gnorm_fvlmoe=38.5875, gnorm_phy_action_proj=0.2093, gnorm_phy_dist_head=0.4927, gnorm_phy_proj=0.8299, gnorm_phy_proto_cls=0.0365, grad_norm=45.5997, kl_fx=1.0124, kl_fy=0.1194, kl_fz=0.2277, kl_tx=0.2310, kl_ty=0.3310, kl_tz=0.3244, lambda_proto=0.0500, loss=3.1211, loss_dist=0.3743, loss_dist_baseline=0.2654, loss_flow=2.6771, loss_proto=1.3936, loss_proto_excess=1.3773, lr=0.0000, mu_pred_mean=12.1892, num_valid=3.0000, param_norm=1392.8442, proto_acc=0.0000, proto_entropy=1.3860, sigma_pred_mean=11.5450, z_phy_cos=0.3206, z_phy_norm=1.0000
+Step 3: frac_valid=1.0000, g_fvl_rms=1.9079, g_phy_rel=0.0241, g_phy_rms=0.0459, gnorm_force_proj=0.1520, gnorm_fvlmoe=37.0836, gnorm_phy_action_proj=0.2017, gnorm_phy_dist_head=1.1780, gnorm_phy_proj=2.0560, gnorm_phy_proto_cls=0.0381, grad_norm=44.6412, kl_fx=1.0237, kl_fy=0.7931, kl_fz=0.7105, kl_tx=1.6457, kl_ty=0.1347, kl_tz=1.9202, lambda_proto=0.0500, loss=3.5016, loss_dist=1.0380, loss_dist_baseline=0.5118, loss_flow=2.3932, loss_proto=1.4097, loss_proto_excess=1.3979, lr=0.0000, mu_pred_mean=12.2476, num_valid=4.0000, param_norm=1392.8442, proto_acc=0.0000, proto_entropy=1.3859, sigma_pred_mean=11.6093, z_phy_cos=0.2692, z_phy_norm=1.0000
+Step 4: frac_valid=0.5000, g_fvl_rms=1.9214, g_phy_rel=0.0239, g_phy_rms=0.0460, gnorm_force_proj=0.1184, gnorm_fvlmoe=24.8214, gnorm_phy_action_proj=0.1469, gnorm_phy_dist_head=0.9518, gnorm_phy_proj=1.5188, gnorm_phy_proto_cls=0.0330, grad_norm=29.4184, kl_fx=1.3270, kl_fy=0.0465, kl_fz=0.2355, kl_tx=0.2241, kl_ty=0.3995, kl_tz=0.9874, lambda_proto=0.0500, loss=1.9643, loss_dist=0.5367, loss_dist_baseline=0.2902, loss_flow=1.3589, loss_proto=1.3762, loss_proto_excess=1.2985, lr=0.0000, mu_pred_mean=12.1379, num_valid=2.0000, param_norm=1392.8442, proto_acc=0.5000, proto_entropy=1.3859, sigma_pred_mean=11.6162, z_phy_cos=0.5756, z_phy_norm=1.0000
+Step 5: frac_valid=0.7500, g_fvl_rms=1.8893, g_phy_rel=0.0241, g_phy_rms=0.0455, gnorm_force_proj=0.1877, gnorm_fvlmoe=27.7576, gnorm_phy_action_proj=0.1604, gnorm_phy_dist_head=2.1954, gnorm_phy_proj=3.2149, gnorm_phy_proto_cls=0.0352, grad_norm=32.7738, kl_fx=1.5863, kl_fy=1.4160, kl_fz=1.0884, kl_tx=3.0819, kl_ty=0.1615, kl_tz=3.4714, lambda_proto=0.0500, loss=3.6082, loss_dist=1.8009, loss_dist_baseline=0.7239, loss_flow=1.7379, loss_proto=1.3885, loss_proto_excess=1.3884, lr=0.0000, mu_pred_mean=12.1154, num_valid=3.0000, param_norm=1392.8444, proto_acc=0.0000, proto_entropy=1.3862, sigma_pred_mean=11.7318, z_phy_cos=0.5886, z_phy_norm=1.0000
+Step 6: frac_valid=0.5000, g_fvl_rms=1.9704, g_phy_rel=0.0230, g_phy_rms=0.0453, gnorm_force_proj=0.3668, gnorm_fvlmoe=31.3001, gnorm_phy_action_proj=0.1720, gnorm_phy_dist_head=1.5791, gnorm_phy_proj=2.6193, gnorm_phy_proto_cls=0.0341, grad_norm=37.0089, kl_fx=1.0768, kl_fy=0.2943, kl_fz=1.6432, kl_tx=0.8013, kl_ty=0.2110, kl_tz=2.8656, lambda_proto=0.0500, loss=3.1774, loss_dist=1.1487, loss_dist_baseline=0.4981, loss_flow=1.9602, loss_proto=1.3705, loss_proto_excess=1.3655, lr=0.0000, mu_pred_mean=12.3028, num_valid=2.0000, param_norm=1392.8442, proto_acc=0.5000, proto_entropy=1.3858, sigma_pred_mean=11.8009, z_phy_cos=0.3135, z_phy_norm=1.0000
+Step 7: frac_valid=0.5000, g_fvl_rms=1.9047, g_phy_rel=0.0242, g_phy_rms=0.0461, gnorm_force_proj=0.1827, gnorm_fvlmoe=40.9429, gnorm_phy_action_proj=0.2256, gnorm_phy_dist_head=2.1777, gnorm_phy_proj=3.1759, gnorm_phy_proto_cls=0.0344, grad_norm=48.5170, kl_fx=1.8512, kl_fy=1.6760, kl_fz=0.9589, kl_tx=3.0421, kl_ty=0.1725, kl_tz=3.1401, lambda_proto=0.0500, loss=3.9137, loss_dist=1.8068, loss_dist_baseline=0.8392, loss_flow=2.0380, loss_proto=1.3769, loss_proto_excess=1.3769, lr=0.0000, mu_pred_mean=11.8551, num_valid=2.0000, param_norm=1392.8444, proto_acc=0.5000, proto_entropy=1.3861, sigma_pred_mean=11.9477, z_phy_cos=0.6843, z_phy_norm=1.0000
+Step 8: frac_valid=0.5000, g_fvl_rms=1.8846, g_phy_rel=0.0245, g_phy_rms=0.0461, gnorm_force_proj=0.1011, gnorm_fvlmoe=38.2958, gnorm_phy_action_proj=0.2106, gnorm_phy_dist_head=0.4295, gnorm_phy_proj=0.7800, gnorm_phy_proto_cls=0.0557, grad_norm=46.4647, kl_fx=0.0952, kl_fy=0.0978, kl_fz=0.3420, kl_tx=0.2628, kl_ty=0.1606, kl_tz=0.2274, lambda_proto=0.0500, loss=2.1861, loss_dist=0.1976, loss_dist_baseline=0.2477, loss_flow=1.9198, loss_proto=1.3739, loss_proto_excess=1.3739, lr=0.0000, mu_pred_mean=11.9732, num_valid=2.0000, param_norm=1392.8445, proto_acc=0.5000, proto_entropy=1.3861, sigma_pred_mean=12.0331, z_phy_cos=0.6619, z_phy_norm=1.0000
+Step 9: frac_valid=0.2500, g_fvl_rms=1.8636, g_phy_rel=0.0241, g_phy_rms=0.0449, gnorm_force_proj=0.4127, gnorm_fvlmoe=28.2529, gnorm_phy_action_proj=0.1615, gnorm_phy_dist_head=3.0015, gnorm_phy_proj=5.6268, gnorm_phy_proto_cls=0.0551, grad_norm=34.4722, kl_fx=2.0129, kl_fy=0.3820, kl_fz=2.9268, kl_tx=1.5791, kl_ty=0.2185, kl_tz=5.3655, lambda_proto=0.0500, loss=3.8354, loss_dist=2.0808, loss_dist_baseline=0.7484, loss_flow=1.6885, loss_proto=1.3217, loss_proto_excess=1.3117, lr=0.0000, mu_pred_mean=12.0785, num_valid=1.0000, param_norm=1392.8445, proto_acc=1.0000, proto_entropy=1.3853, sigma_pred_mean=11.8279, z_phy_cos=0.4073, z_phy_norm=1.0000
+Step 10: frac_valid=0.7500, g_fvl_rms=1.8866, g_phy_rel=0.0242, g_phy_rms=0.0457, gnorm_force_proj=0.1229, gnorm_fvlmoe=26.1591, gnorm_phy_action_proj=0.1397, gnorm_phy_dist_head=0.3347, gnorm_phy_proj=0.4676, gnorm_phy_proto_cls=0.0350, grad_norm=30.8388, kl_fx=0.5473, kl_fy=0.2228, kl_fz=0.3540, kl_tx=0.2042, kl_ty=0.1552, kl_tz=0.2130, lambda_proto=0.0500, loss=1.4582, loss_dist=0.2827, loss_dist_baseline=0.2865, loss_flow=1.1049, loss_proto=1.4093, loss_proto_excess=1.4090, lr=0.0000, mu_pred_mean=11.8952, num_valid=3.0000, param_norm=1392.8445, proto_acc=0.0000, proto_entropy=1.3860, sigma_pred_mean=11.9722, z_phy_cos=0.3280, z_phy_norm=1.0000
+Step 11: frac_valid=0.7500, g_fvl_rms=1.9470, g_phy_rel=0.0231, g_phy_rms=0.0450, gnorm_force_proj=0.3079, gnorm_fvlmoe=23.1768, gnorm_phy_action_proj=0.1308, gnorm_phy_dist_head=1.9753, gnorm_phy_proj=2.3492, gnorm_phy_proto_cls=0.0341, grad_norm=27.7337, kl_fx=1.7761, kl_fy=1.4928, kl_fz=0.9455, kl_tx=2.5767, kl_ty=0.3251, kl_tz=3.4784, lambda_proto=0.0500, loss=3.0155, loss_dist=1.7658, loss_dist_baseline=0.7260, loss_flow=1.1811, loss_proto=1.3721, loss_proto_excess=1.3633, lr=0.0000, mu_pred_mean=12.2618, num_valid=3.0000, param_norm=1392.8445, proto_acc=0.6667, proto_entropy=1.3861, sigma_pred_mean=11.8631, z_phy_cos=0.2560, z_phy_norm=1.0000
+02:46:51.306 [I] [process=0][thread=MainThread][wait_until_finished] No Save Finalize thread to wait for. Returning. (2219957:checkpoint_manager.py:1987)
+02:46:51.307 [I] [process=0] Saving checkpoint at step 19                                         (2219957:checkpoint_manager.py:1408)
+02:46:51.307 [I] [process=0] Started async saving checkpoint to /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke/19. (2219957:async_checkpointer.py:439)
+02:46:51.308 [I] Using ThreadSafeKeyValueSignalingClient                                          (2219957:signaling_client.py:332)
+02:46:51.320 [I] Creating tmp directory /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke/19.orbax-checkpoint-tmp-0 (2219957:atomicity.py:144)
+02:46:51.352 [I] Creating tmp directory /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke/19.orbax-checkpoint-tmp-0/assets.orbax-checkpoint-tmp-1 (2219957:atomicity.py:144)
+02:46:51.352 [I] Creating tmp directory /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke/19.orbax-checkpoint-tmp-0/train_state.orbax-checkpoint-tmp-3 (2219957:atomicity.py:144)
+02:46:51.352 [I] Creating tmp directory /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke/19.orbax-checkpoint-tmp-0/params.orbax-checkpoint-tmp-2 (2219957:atomicity.py:144)
+02:46:51.352 [I] Wrote Metadata={'item_handlers': None, 'metrics': {}, 'performance_metrics': {}, 'init_timestamp_nsecs': 1788569211350523427, 'commit_timestamp_nsecs': None, 'custom_metadata': {}}, json={"item_handlers": null, "metrics": {}, "performance_metrics": {}, "init_timestamp_nsecs": 1788569211350523427, "commit_timestamp_nsecs": null, "custom_metadata": {}} to /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke/19.orbax-checkpoint-tmp-0/_CHECKPOINT_METADATA (2219957:checkpoint.py:186)
+02:46:51.453 [I] Transferring arrays to host memory with options: use_replica_parallel=True, enable_pinned_host_transfer=False (2219957:replica_slices.py:341)
+02:46:55.083 [I] Transferring arrays to host memory with options: use_replica_parallel=True, enable_pinned_host_transfer=False (2219957:replica_slices.py:341)
+02:46:55.089 [I] Array name: 'params.PaliGemma.llm.layers.mlp.gating_einsum.value', global shape: (18, 2, 2048, 16384), write shape: (18, 2, 2048, 16384), chosen chunk shape: (18, 2, 2048, 8192) (2219957:tensorstore_utils.py:408)
+02:46:55.209 [I] [process=0][thread=array_type_handler] Wrote 94 array_metadata.ArrayMetadata to /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke/19.orbax-checkpoint-tmp-0/params.orbax-checkpoint-tmp-2/array_metadatas/process_0 (2219957:array_metadata_store.py:198)
+02:46:57.357 [I] [process=0] /jax/checkpoint/write/blocking_bytes_per_sec: 1.1 GiB/s (total bytes: 6.9 GiB) (time elapsed: 6 seconds) (per-host) (2219957:base_pytree_checkpoint_handler.py:114)
+02:46:57.367 [I] [process=0] /jax/checkpoint/write/blocking_bytes_per_sec: 480.6 MiB/s (total bytes: 2.8 GiB) (time elapsed: 6 seconds) (per-host) (2219957:base_pytree_checkpoint_handler.py:114)
+02:46:57.380 [I] [process=0][thread=async_save] Background save thread started.                   (2219957:async_checkpointer.py:77)
+02:46:57.380 [I] Finished blocking save in 6.07 seconds. Continuing to save asynchronously to /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke/19. (2219957:async_checkpointer.py:548)
+02:46:57.380 [I] [process=0][thread=MainThread][step=19] Starting CheckpointManager Save Finalize thread=save_finalize (2219957:checkpoint_manager.py:1453)
+02:46:57.380 [I] [process=0][thread=save_finalize] Waiting for background save thread=async_save. (2219957:async_checkpointer.py:258)
+02:46:57.381 [I] {'step': 19, 'event_type': 'save', 'directory': '/leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke', 'reached_preemption': False, 'preemption_received_at': None, 'synchronous': False, 'wait_for_prev_start_time': 1788569211.3068373, 'wait_for_prev_duration_secs': 9.059906005859375e-05, 'checkpointer_blocking_start_time': 1788569211.307217, 'checkpointer_blocking_duration_secs': 6.073120355606079, 'get_old_steps_start_time': 1788569217.380365, 'get_old_steps_duration_secs': 4.5299530029296875e-06, 'checkpoint_manager_blocking_start_time': 1788569211.3067322, 'checkpoint_manager_blocking_duration_secs': 6.074787378311157} (2219957:standard_logger.py:34)
+02:46:57.381 [I] Progress on: 20.0it/20.0it rate:2.2s/it remaining:00:00 elapsed:00:38 postfix:-  (2219957:tqdm_logging.py:145)
+02:46:57.381 [I] Progress on: 20.0it/20.0it rate:2.2s/it remaining:00:00 elapsed:00:38 postfix:-  (2219957:tqdm_logging.py:145)
+02:46:57.401 [I] Wrote training summary to /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke/training_summary.txt (2219957:train.py:342)
+02:46:57.402 [I] Waiting for checkpoint manager to finish                                         (2219957:train.py:344)
+02:46:57.402 [I] [process=0][thread=MainThread][step=19][wait_until_finished] Waiting for Save Finalize thread (save_finalize) to complete. (2219957:checkpoint_manager.py:1998)
+02:46:57.409 [I] [process=0][thread=array_type_handler] Wrote 127 array_metadata.ArrayMetadata to /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke/19.orbax-checkpoint-tmp-0/train_state.orbax-checkpoint-tmp-3/array_metadatas/process_0 (2219957:array_metadata_store.py:198)
+02:47:00.391 [I] [process=0] /jax/checkpoint/write/bytes_per_sec: 774.0 MiB/s (total bytes: 6.9 GiB) (time elapsed: 9 seconds) (per-host) (2219957:base_pytree_checkpoint_handler.py:114)
+02:47:00.391 [I] [process=0] /jax/checkpoint/write/bytes_per_sec: 320.4 MiB/s (total bytes: 2.8 GiB) (time elapsed: 9 seconds) (per-host) (2219957:base_pytree_checkpoint_handler.py:114)
+02:47:00.391 [I] [process=0][thread=async_save] 5 Handler Commit operations completed.            (2219957:async_checkpointer.py:87)
+02:47:00.392 [I] Read Metadata={'item_handlers': None, 'metrics': {}, 'performance_metrics': {}, 'init_timestamp_nsecs': 1788569211350523427, 'commit_timestamp_nsecs': None, 'custom_metadata': {}} from /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke/19.orbax-checkpoint-tmp-0/_CHECKPOINT_METADATA (2219957:checkpoint.py:226)
+02:47:00.392 [I] Renaming /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke/19.orbax-checkpoint-tmp-0/assets.orbax-checkpoint-tmp-1 to /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke/19.orbax-checkpoint-tmp-0/assets (2219957:atomicity.py:289)
+02:47:00.394 [I] Updated Metadata={'item_handlers': {'assets': 'openpi.training.checkpoints.CallbackHandler', 'params': 'orbax.checkpoint._src.handlers.pytree_checkpoint_handler.PyTreeCheckpointHandler', 'train_state': 'orbax.checkpoint._src.handlers.pytree_checkpoint_handler.PyTreeCheckpointHandler'}, 'metrics': {}, 'performance_metrics': {}, 'init_timestamp_nsecs': 1788569211350523427, 'commit_timestamp_nsecs': None, 'custom_metadata': {}} to /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke/19.orbax-checkpoint-tmp-0/_CHECKPOINT_METADATA (2219957:checkpoint.py:245)
+02:47:00.396 [I] [process=0][thread=async_save] Skipped cross-host ArrayMetadata validation because only one process is found: process_index=0. (2219957:array_metadata_store.py:362)
+02:47:00.411 [I] Renaming /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke/19.orbax-checkpoint-tmp-0/train_state.orbax-checkpoint-tmp-3 to /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke/19.orbax-checkpoint-tmp-0/train_state (2219957:atomicity.py:289)
+02:47:00.414 [I] [process=0][thread=async_save] Skipped cross-host ArrayMetadata validation because only one process is found: process_index=0. (2219957:array_metadata_store.py:362)
+02:47:00.427 [I] Renaming /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke/19.orbax-checkpoint-tmp-0/params.orbax-checkpoint-tmp-2 to /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke/19.orbax-checkpoint-tmp-0/params (2219957:atomicity.py:289)
+02:47:00.428 [I] Renaming /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke/19.orbax-checkpoint-tmp-0 to /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke/19 (2219957:atomicity.py:289)
+02:47:00.432 [I] [process=0][thread=async_save] Finished saving checkpoint (finalized tmp dir) to `/leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke/19`. (2219957:atomicity.py:573)
+02:47:00.432 [I] Finished asynchronous save (blocking + background) in 9.12 seconds to /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke/19 (2219957:async_checkpointer.py:412)
+02:47:00.432 [I] [process=0][thread=async_save] Background save thread done.                      (2219957:async_checkpointer.py:143)
+02:47:00.432 [I] [process=0][thread=save_finalize] Done with waiting for background save thread=async_save. (2219957:async_checkpointer.py:266)
+02:47:00.432 [I] [process=0][thread=save_finalize] No errors found in background save thread=async_save. (2219957:async_checkpointer.py:276)
+02:47:00.432 [I] [process=0][thread=save_finalize][step=19] CheckpointManager Save Finalize is syncing with other hosts... (2219957:checkpoint_manager.py:2095)
+02:47:00.432 [I] [process=0][thread=save_finalize][step=19] CheckpointManager Save Finalize is done on all hosts. (2219957:checkpoint_manager.py:2110)
+02:47:00.432 [I] [process=0][thread=MainThread][step=19][wait_until_finished] Done waiting for Save Finalize thread (save_finalize) running at step=19. (2219957:checkpoint_manager.py:2010)
+Step 12: frac_valid=0.5000, g_fvl_rms=1.8662, g_phy_rel=0.0238, g_phy_rms=0.0445, gnorm_force_proj=0.1630, gnorm_fvlmoe=15.2777, gnorm_phy_action_proj=0.0896, gnorm_phy_dist_head=1.3913, gnorm_phy_proj=2.2146, gnorm_phy_proto_cls=0.0340, grad_norm=18.2722, kl_fx=1.1065, kl_fy=0.2835, kl_fz=1.6016, kl_tx=0.7354, kl_ty=0.1109, kl_tz=2.4109, lambda_proto=0.0500, loss=1.7268, loss_dist=1.0415, loss_dist_baseline=0.4812, loss_flow=0.6167, loss_proto=1.3740, loss_proto_excess=1.3454, lr=0.0000, mu_pred_mean=11.8826, num_valid=2.0000, param_norm=1392.8446, proto_acc=0.0000, proto_entropy=1.3861, sigma_pred_mean=12.0455, z_phy_cos=0.3869, z_phy_norm=1.0000
+Step 13: frac_valid=1.0000, g_fvl_rms=1.9834, g_phy_rel=0.0231, g_phy_rms=0.0457, gnorm_force_proj=0.3207, gnorm_fvlmoe=18.8169, gnorm_phy_action_proj=0.1087, gnorm_phy_dist_head=0.4382, gnorm_phy_proj=0.5955, gnorm_phy_proto_cls=0.0367, grad_norm=22.1411, kl_fx=0.7896, kl_fy=0.2034, kl_fz=0.3420, kl_tx=0.1074, kl_ty=0.1924, kl_tz=0.7365, lambda_proto=0.0500, loss=1.3327, loss_dist=0.3952, loss_dist_baseline=0.3019, loss_flow=0.8696, loss_proto=1.3571, loss_proto_excess=1.2806, lr=0.0000, mu_pred_mean=11.7826, num_valid=4.0000, param_norm=1392.8447, proto_acc=0.7500, proto_entropy=1.3856, sigma_pred_mean=11.9171, z_phy_cos=0.2458, z_phy_norm=1.0000
+Step 14: frac_valid=0.5000, g_fvl_rms=1.8498, g_phy_rel=0.0247, g_phy_rms=0.0457, gnorm_force_proj=0.0698, gnorm_fvlmoe=18.1990, gnorm_phy_action_proj=0.1080, gnorm_phy_dist_head=1.0779, gnorm_phy_proj=1.1423, gnorm_phy_proto_cls=0.0323, grad_norm=21.3296, kl_fx=0.5006, kl_fy=0.6033, kl_fz=0.7832, kl_tx=1.2043, kl_ty=0.1625, kl_tz=1.5528, lambda_proto=0.0500, loss=1.9864, loss_dist=0.8011, loss_dist_baseline=0.4170, loss_flow=1.1172, loss_proto=1.3620, loss_proto_excess=1.3618, lr=0.0000, mu_pred_mean=11.7853, num_valid=2.0000, param_norm=1392.8447, proto_acc=0.0000, proto_entropy=1.3859, sigma_pred_mean=12.3175, z_phy_cos=0.7091, z_phy_norm=1.0000
+Step 15: frac_valid=0.7500, g_fvl_rms=1.9515, g_phy_rel=0.0229, g_phy_rms=0.0448, gnorm_force_proj=0.2807, gnorm_fvlmoe=22.6673, gnorm_phy_action_proj=0.1277, gnorm_phy_dist_head=1.4858, gnorm_phy_proj=2.0918, gnorm_phy_proto_cls=0.0219, grad_norm=26.8929, kl_fx=1.5349, kl_fy=1.2756, kl_fz=0.7667, kl_tx=1.9099, kl_ty=0.3524, kl_tz=2.4100, lambda_proto=0.0500, loss=2.5489, loss_dist=1.3749, loss_dist_baseline=0.6322, loss_flow=1.1047, loss_proto=1.3865, loss_proto_excess=1.3863, lr=0.0000, mu_pred_mean=11.9337, num_valid=3.0000, param_norm=1392.8447, proto_acc=0.3333, proto_entropy=1.3859, sigma_pred_mean=11.7736, z_phy_cos=0.2084, z_phy_norm=1.0000
+Step 16: frac_valid=1.0000, g_fvl_rms=1.9237, g_phy_rel=0.0234, g_phy_rms=0.0451, gnorm_force_proj=0.3108, gnorm_fvlmoe=16.5089, gnorm_phy_action_proj=0.1022, gnorm_phy_dist_head=0.7514, gnorm_phy_proj=1.1085, gnorm_phy_proto_cls=0.0261, grad_norm=19.7072, kl_fx=0.6610, kl_fy=0.4940, kl_fz=0.6275, kl_tx=0.8587, kl_ty=0.2429, kl_tz=1.1798, lambda_proto=0.0500, loss=1.6336, loss_dist=0.6773, loss_dist_baseline=0.3422, loss_flow=0.8869, loss_proto=1.3890, loss_proto_excess=1.3876, lr=0.0000, mu_pred_mean=11.7274, num_valid=4.0000, param_norm=1392.8447, proto_acc=0.0000, proto_entropy=1.3860, sigma_pred_mean=11.9689, z_phy_cos=0.2684, z_phy_norm=1.0000
+Step 17: frac_valid=1.0000, g_fvl_rms=1.8979, g_phy_rel=0.0236, g_phy_rms=0.0448, gnorm_force_proj=0.1248, gnorm_fvlmoe=19.6520, gnorm_phy_action_proj=0.1075, gnorm_phy_dist_head=0.4969, gnorm_phy_proj=0.7410, gnorm_phy_proto_cls=0.0376, grad_norm=23.2868, kl_fx=0.7001, kl_fy=0.1055, kl_fz=0.2846, kl_tx=0.2157, kl_ty=0.2993, kl_tz=0.5415, lambda_proto=0.0500, loss=1.2389, loss_dist=0.3578, loss_dist_baseline=0.2833, loss_flow=0.8127, loss_proto=1.3696, loss_proto_excess=1.3371, lr=0.0000, mu_pred_mean=11.6614, num_valid=4.0000, param_norm=1392.8447, proto_acc=0.5000, proto_entropy=1.3859, sigma_pred_mean=12.0544, z_phy_cos=0.4899, z_phy_norm=1.0000
+Step 18: frac_valid=0.5000, g_fvl_rms=1.8287, g_phy_rel=0.0251, g_phy_rms=0.0459, gnorm_force_proj=0.0629, gnorm_fvlmoe=19.1585, gnorm_phy_action_proj=0.1102, gnorm_phy_dist_head=0.3226, gnorm_phy_proj=0.5097, gnorm_phy_proto_cls=0.0548, grad_norm=22.5508, kl_fx=0.5904, kl_fy=0.0591, kl_fz=0.2704, kl_tx=0.0864, kl_ty=0.0470, kl_tz=0.0998, lambda_proto=0.0500, loss=1.1445, loss_dist=0.1922, loss_dist_baseline=0.2425, loss_flow=0.8837, loss_proto=1.3722, loss_proto_excess=1.3481, lr=0.0000, mu_pred_mean=11.8443, num_valid=2.0000, param_norm=1392.8447, proto_acc=0.0000, proto_entropy=1.3856, sigma_pred_mean=12.0962, z_phy_cos=0.3078, z_phy_norm=1.0000
+Step 19: frac_valid=0.2500, g_fvl_rms=1.8299, g_phy_rel=0.0250, g_phy_rms=0.0458, gnorm_force_proj=0.0465, gnorm_fvlmoe=19.3350, gnorm_phy_action_proj=0.1115, gnorm_phy_dist_head=0.4077, gnorm_phy_proj=0.6502, gnorm_phy_proto_cls=0.0576, grad_norm=23.1472, kl_fx=0.1085, kl_fy=0.0826, kl_fz=0.3091, kl_tx=0.2557, kl_ty=0.1277, kl_tz=0.1911, lambda_proto=0.0500, loss=1.0349, loss_dist=0.1791, loss_dist_baseline=0.2477, loss_flow=0.7877, loss_proto=1.3622, loss_proto_excess=1.3622, lr=0.0000, mu_pred_mean=11.7415, num_valid=1.0000, param_norm=1392.8447, proto_acc=1.0000, proto_entropy=1.3859, sigma_pred_mean=12.3018, z_phy_cos=0.7344, z_phy_norm=1.0000
+
+==============================================================================
+DraftVLA training summary
+==============================================================================
+config     : pi0_draftvla batch=4 steps=20 peak_lr=2.5e-05 warmup=5
+metrics    : /leonardo_work/IscrC_VLA/DamageVLA/openpi_draftvla/checkpoints/pi0_draftvla/draftvla_leonardo_smoke/metrics.csv
+steps      : 0..19  (20 logged points)
+
+LR         : max reached=2.500e-05  final=3.000e-06
+
+labels     : 2.60 labeled frames/step (min=1 max=4); 0/20 steps had NONE
+             (masked metrics below are averaged over LABELED steps only -- an all-masked
+              step logs 0 by construction and would otherwise drag them toward 0)
+
+grad norms per module (mean over run):
+    force_proj         1.981e-01
+    fvlmoe             2.787e+01
+    phy_action_proj    1.556e-01
+    phy_dist_head      1.183e+00
+    phy_proj           1.815e+00
+    phy_proto_cls      3.742e-02
+
+physical branch:
+    z_phy_cos          +0.2877 -> +0.5211   (mean pairwise cosine; ~1 = collapsed)
+      -> z_phy is spread (cos 0.521 < 0.95); not a collapse.
+    z_phy_norm         1.0000                (L2-normalized => must be ~1.0)
+    loss_dist          1.2481 -> 0.1856
+    loss_dist_baseline 0.5341 -> 0.2451   (constant predictor: mu=0, sigma=1 normalized)
+      -> ratio vs trivial = 0.757   (<1 beats a constant; ~1 learned nothing; >1 worse)
+    loss_proto         1.3754 -> 1.3672
+    lambda_proto (max) 0.0500
+    proto_entropy      1.3860 -> 1.3858   (H(p); ~log(K) = uniform = collapsed)
+    proto_acc          0.5833 -> 0.5000
+    g_phy_rel          0.0233 -> 0.0251   (||G_phy||/||G_fvl||)
+
+L_dist per wrench dim (final):
+    fx      0.3494
+    fy      0.0709
+    fz      0.2897
+    tx      0.1711
+    ty      0.0874
+    tz      0.1455
+      -> dominated by fx
+
+loss_flow  : 3.2334 -> 0.8357
+loss       : 4.5503 -> 1.0897
+param_norm : 1392.8442 -> 1392.8447   relative drift=3.51e-07
+      -> frozen VLM intact (drift is bf16 rounding noise).
+
+------------------------------------------------------------------------------
+FINDINGS (3):
+  1. LABEL STARVATION: only 2.6 labeled frames/step reach L_dist and L_proto (43.6% of kept frames are unlabeled). The KL is estimated from a handful of samples, so its noise floor swamps the signal. Raise batch_size.
+  2. L_proto is PINNED AT log(4)=1.3863 (value 1.3672): the classifier emits a uniform distribution, i.e. it has learned nothing at all. This is 'no learning', NOT 'learned but wrong' -- the latter would show low entropy with low accuracy.
+  3. G_phy is NEGLIGIBLE next to G_fvl (ratio 0.025): the physical token is not moving the action head in any meaningful way, so the branch is decorative -- it would fail plan rule 3 ('must influence action generation') even if its own losses looked fine.
+==============================================================================

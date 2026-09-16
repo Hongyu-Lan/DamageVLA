@@ -1,0 +1,21 @@
+INFO:root:Loading model...
+INFO:2026-06-19 12:47:32,597:jax._src.xla_bridge:925: Unable to initialize backend 'rocm': module 'jaxlib.xla_extension' has no attribute 'GpuAllocatorConfig'
+INFO:jax._src.xla_bridge:Unable to initialize backend 'rocm': module 'jaxlib.xla_extension' has no attribute 'GpuAllocatorConfig'
+INFO:2026-06-19 12:47:32,599:jax._src.xla_bridge:925: Unable to initialize backend 'tpu': INTERNAL: Failed to open libtpu.so: libtpu.so: cannot open shared object file: No such file or directory
+INFO:jax._src.xla_bridge:Unable to initialize backend 'tpu': INTERNAL: Failed to open libtpu.so: libtpu.so: cannot open shared object file: No such file or directory
+INFO:absl:orbax-checkpoint version: 0.11.13
+INFO:absl:Created BasePyTreeCheckpointHandler: use_ocdbt=True, use_zarr3=False, pytree_metadata_options=PyTreeMetadataOptions(support_rich_types=False), array_metadata_store=<orbax.checkpoint._src.metadata.array_metadata_store.Store object at 0x7f753158c450>
+INFO:absl:Restoring checkpoint from /home/ziren2/ziren/project/openpi/checkpoints/pi0_force_fvlmoe/force_fvlmoe_smoke_repro/199/params.
+INFO:absl:[thread=MainThread] Failed to get flag value for EXPERIMENTAL_ORBAX_USE_DISTRIBUTED_PROCESS_ID.
+INFO:absl:[process=0] /jax/checkpoint/read/bytes_per_sec: 1.5 GiB/s (total bytes: 6.1 GiB) (time elapsed: 4 seconds) (per-host)
+INFO:absl:Finished restoring checkpoint in 4.04 seconds from /home/ziren2/ziren/project/openpi/checkpoints/pi0_force_fvlmoe/force_fvlmoe_smoke_repro/199/params.
+INFO:root:Loaded norm stats from /home/ziren2/ziren/project/openpi/assets/pi0_force_fvlmoe/force/banana
+INFO:root:Loaded norm stats from /home/ziren2/ziren/project/openpi/checkpoints/pi0_force_fvlmoe/force_fvlmoe_smoke_repro/199/assets/force/banana
+INFO:root:Creating server (host: oronzo, ip: 127.0.1.1)
+INFO:websockets.server:server listening on 0.0.0.0:8000
+INFO:websockets.server:connection open
+INFO:openpi.serving.websocket_policy_server:Connection from ('127.0.0.1', 42480) opened
+INFO:openpi.serving.websocket_policy_server:Connection from ('127.0.0.1', 42480) closed
+INFO:websockets.server:connection open
+INFO:openpi.serving.websocket_policy_server:Connection from ('127.0.0.1', 52308) opened
+INFO:openpi.serving.websocket_policy_server:Connection from ('127.0.0.1', 52308) closed

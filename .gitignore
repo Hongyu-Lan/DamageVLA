@@ -1,0 +1,29 @@
+# --- 第三方代码（525MB，上游 openpi 的 submodule 副本，我们没改过）---
+# 恢复方法见 README：从 https://github.com/Physical-Intelligence/openpi 取对应 submodule
+third_party/
+
+# --- Python 环境与缓存（每台机器各自生成，不进仓库）---
+.venv/
+.tools/
+.cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# --- 训练产物（体积大，且在 Leonardo 上）---
+checkpoints/
+wandb/
+outputs/
+*.ckpt
+*.safetensors
+
+# --- 数据集（原始数据和 LeRobot 转换结果不进仓库）---
+data/
+*.parquet
+*.mp4
+
+# --- 系统 / 编辑器 ---
+.DS_Store
+*.swp
