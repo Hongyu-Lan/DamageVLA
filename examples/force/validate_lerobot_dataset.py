@@ -5,11 +5,11 @@ import json
 import os
 import pathlib
 
-EXPECTED_FORCE_INPUT = "tactile_estimated_wrench_mean_plus_signed_half_difference"
+EXPECTED_FORCE_INPUT = "tactile_data_zeroed_50_plus_gripper_width_plus_force_torque_zeroed"
 
 
 def main(
-    repo_id: str = "draftvla/fruits_tactile",
+    repo_id: str = "draftvla/task12_tactile_train",
     expected_episodes: int = 22,
     expected_frames: int = 16_904,
     expected_force_input: str = EXPECTED_FORCE_INPUT,
@@ -35,17 +35,15 @@ def main(
             f"completion marker: expected force_input_signal={expected_force_input!r}, "
             f"got {marker.get('force_input_signal')!r}"
         )
-    wrench_feature = info.get("features", {}).get("gripper_wrench", {})
-    expected_wrench_names = [f"mean_{name}" for name in ("fx", "fy", "fz", "tx", "ty", "tz")] + [
-        f"difference_{name}" for name in ("fx", "fy", "fz", "tx", "ty", "tz")
-    ]
-    if wrench_feature.get("shape") != [12] or wrench_feature.get("names") != expected_wrench_names:
-        errors.append(
-            f"info.json: expected gripper_wrench shape [12] with [mean_*, difference_*] names, got {wrench_feature}"
-        )
+    contact_feature = info.get("features", {}).get("contact_input", {})
+    if contact_feature.get("shape") != [57]:
+        errors.append(f"info.json: expected contact_input shape [57], got {contact_feature.get('shape')}")
     safe_feature = info.get("features", {}).get("gt_safe_distribution", {})
-    if safe_feature.get("shape") != [12]:
-        errors.append(f"info.json: expected unchanged gt_safe_distribution shape [12], got {safe_feature}")
+    if safe_feature.get("shape") != [2]:
+        errors.append(f"info.json: expected gt_safe_distribution shape [2] (mu, sigma), got {safe_feature}")
+    proto_feature = info.get("features", {}).get("soft_prototype_target", {})
+    if proto_feature.get("shape") != [6]:
+        errors.append(f"info.json: expected soft_prototype_target shape [6] (K=6), got {proto_feature}")
 
     episode_rows = root / "meta" / "episodes.jsonl"
     if not episode_rows.is_file() or sum(1 for line in episode_rows.open() if line.strip()) != expected_episodes:

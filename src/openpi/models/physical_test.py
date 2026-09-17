@@ -243,3 +243,73 @@ def test_aux_keys_agree_between_loader_and_policy():
     from openpi.training import data_loader
 
     assert set(data_loader.AUX_KEYS) == set(draftvla_policy.AUX_KEYS)
+
+
+# === 2026-09-16 contract (Plan B): 57-D contact input, 1-D grip target, learnable gain ============
+
+
+def _config_task12(**kwargs) -> pi0_config.Pi0Config:
+    return _config(
+        force_dim=57,
+        safe_force_dim=1,
+        phy_num_prototypes=6,
+        phy_label_mean=(1.030686,),
+        phy_label_scale=(0.404850,),
+        **kwargs,
+    )
+
+
+def _aux_task12(batch_size: int, *, valid: bool) -> dict:
+    return {
+        "gt_safe_distribution": jnp.concatenate(
+            [jnp.zeros((batch_size, 1)), jnp.ones((batch_size, 1))], axis=-1
+        ),
+        "soft_prototype_target": jnp.full((batch_size, 6), 1.0 / 6),
+        "supervision_valid": jnp.full((batch_size,), valid, dtype=jnp.bool_),
+    }
+
+
+def test_57d_contact_input_keeps_1d_grip_target():
+    """Contract §A/§B: force_dim=57 conditions the model; the supervised target is [mu, sigma] of
+    the scalar grip -- 2 numbers, so the dist head's output is 2 wide and the KL is 1-D."""
+    config = _config_task12()
+    model = config.create(jax.random.key(0))
+    observation, actions = config.fake_obs(batch_size=2), config.fake_act(batch_size=2)
+    assert observation.force.shape == (2, 57)
+    assert model.force_proj.in_features == 57
+    assert model.phy_dist_head.fc_out.out_features == 2
+    loss, metrics = model.compute_train_losses(
+        jax.random.key(0), observation, actions, train=True, aux=_aux_task12(2, valid=True)
+    )
+    assert jnp.isfinite(loss)
+    assert "kl_grip" in metrics and "kl_fx" not in metrics
+
+
+def test_learnable_gain_scales_g_phy_and_is_logged():
+    """Contract §0c: the gain multiplies G_phy (g_phy_rel scales with it) and is logged as
+    phy_alpha. gain=0 must silence the physical guidance entirely."""
+    config = _config_task12(phy_action_gain_init=13.0)
+    model = config.create(jax.random.key(0))
+    observation, actions = config.fake_obs(batch_size=2), config.fake_act(batch_size=2)
+    _, metrics = model.compute_train_losses(
+        jax.random.key(0), observation, actions, train=True, aux=_aux_task12(2, valid=True)
+    )
+    assert float(metrics["phy_alpha"]) == pytest.approx(13.0)
+
+    model13_rel = float(metrics["g_phy_rel"])
+    model.phy_action_proj.gain.value = jnp.asarray(1.0)
+    _, metrics1 = model.compute_train_losses(
+        jax.random.key(0), observation, actions, train=True, aux=_aux_task12(2, valid=True)
+    )
+    assert model13_rel == pytest.approx(13.0 * float(metrics1["g_phy_rel"]), rel=1e-3)
+
+    model.phy_action_proj.gain.value = jnp.asarray(0.0)
+    _, metrics0 = model.compute_train_losses(
+        jax.random.key(0), observation, actions, train=True, aux=_aux_task12(2, valid=True)
+    )
+    assert float(metrics0["g_phy_rel"]) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_gain_default_preserves_legacy_behavior():
+    """phy_action_gain_init defaults to 1.0 so every pre-contract config is bit-identical."""
+    assert pi0_config.Pi0Config(action_dim=32, action_horizon=4).phy_action_gain_init == 1.0

@@ -54,8 +54,36 @@ case "$MODE" in
     NUM_CPUS=16
     MEMORY=120G
     ;;
+  smoke_task12)
+    CONFIG_FILE=train_config_leonardo_smoke_task12.conf
+    WALLTIME=02:00:00
+    NUM_GPUS=1
+    NUM_CPUS=16
+    MEMORY=120G
+    ;;
+  full_task12)
+    CONFIG_FILE=train_config_task12.conf
+    WALLTIME=24:00:00
+    NUM_GPUS=1
+    NUM_CPUS=16
+    MEMORY=120G
+    ;;
+  full_task12_forcevla)
+    CONFIG_FILE=train_config_task12_forcevla.conf
+    WALLTIME=24:00:00
+    NUM_GPUS=1
+    NUM_CPUS=16
+    MEMORY=120G
+    ;;
+  full_task12_noforce)
+    CONFIG_FILE=train_config_task12_noforce.conf
+    WALLTIME=24:00:00
+    NUM_GPUS=1
+    NUM_CPUS=16
+    MEMORY=120G
+    ;;
   *)
-    echo "Usage: bash submit_leonardo.sh [smoke|smoke4|full|smoke_20260905|full_20260905|smoke_combined|full_combined]" >&2
+    echo "Usage: bash submit_leonardo.sh [smoke|smoke4|full|smoke_20260905|full_20260905|smoke_combined|full_combined|smoke_task12|full_task12|full_task12_forcevla|full_task12_noforce]" >&2
     exit 2
     ;;
 esac

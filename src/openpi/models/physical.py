@@ -56,19 +56,34 @@ class PhysicalProjector(nnx.Module):
 
 
 class PhysicalActionProjector(nnx.Module):
-    """z_phy -> per-horizon additive action guidance G_phy (plan §6.2 / rule 3)."""
+    """z_phy -> per-horizon additive action guidance G_phy (plan §6.2 / rule 3).
 
-    def __init__(self, d_phy: int, d_act: int, action_horizon: int, *, hidden: int = 512, rngs: nnx.Rngs):
+    `gain` is a LEARNABLE scalar multiplier on the output (todo_training_contract.md §0c). The
+    2026-09 10k-step run ended with g_phy_rel = ||G_phy||/||G_fvl|| ~ 0.028: z_phy is L2-normalized
+    so the output magnitude is set entirely by these weights, and the flow loss has no pressure to
+    grow them (G_fvl already carries the force signal). Initializing gain to ~13 lifts the initial
+    ratio to ~0.3 so the pathway is visible to the flow gradient from step 0, while training remains
+    free to shrink it back -- an honest negative result if it happens.
+
+    NOTE (identifiability): gain multiplies fc_out, so the optimizer can trade one against the
+    other; the *value* of gain is not interpretable on its own. The evidence metric is the measured
+    ratio `g_phy_rel` (and the three-arm comparison), never gain itself.
+    """
+
+    def __init__(
+        self, d_phy: int, d_act: int, action_horizon: int, *, hidden: int = 512, gain_init: float = 1.0, rngs: nnx.Rngs
+    ):
         self.action_horizon = action_horizon
         self.d_act = d_act
         self.fc_in = nnx.Linear(d_phy, hidden, rngs=rngs)
         self.fc_out = nnx.Linear(hidden, action_horizon * d_act, rngs=rngs)
+        self.gain = nnx.Param(jnp.asarray(gain_init, dtype=jnp.float32))
 
     @at.typecheck
     def __call__(self, z_phy: at.Float[at.Array, "b p"]) -> at.Float[at.Array, "b t d"]:
         x = jax.nn.gelu(self.fc_in(z_phy))
         x = self.fc_out(x)
-        return x.reshape(x.shape[0], self.action_horizon, self.d_act)
+        return self.gain.value * x.reshape(x.shape[0], self.action_horizon, self.d_act)
 
 
 class SafeForceDistributionHead(nnx.Module):

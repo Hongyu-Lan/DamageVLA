@@ -66,7 +66,7 @@ def _window_mean(values: list[float], *, first: bool, frac: float = 0.1) -> floa
 # statistic on these MUST be taken over labeled steps only.
 _MASKED_METRICS = frozenset(
     {"loss_dist", "loss_proto", "loss_proto_excess", "proto_acc", "proto_entropy", "loss_dist_baseline"}
-    | {f"kl_{d}" for d in ("fx", "fy", "fz", "tx", "ty", "tz")}
+    | {f"kl_{d}" for d in ("fx", "fy", "fz", "tx", "ty", "tz", "grip")}
 )
 
 # Diagnostics this summary needs to reach a verdict. Missing => the run predates them => say so
@@ -236,6 +236,9 @@ def build_summary(metrics_path: pathlib.Path, *, config_line: str = "") -> str:
     if has("g_phy_rel"):
         g_first, g_last = first_last("g_phy_rel")
         add(f"    g_phy_rel          {g_first:.4f} -> {g_last:.4f}   (||G_phy||/||G_fvl||)")
+    if has("phy_alpha"):
+        a_first, a_last = first_last("phy_alpha")
+        add(f"    phy_alpha          {a_first:.4f} -> {a_last:.4f}   (learnable gain; NOT evidence on its own -- read g_phy_rel)")
         if g_last < _NEGLIGIBLE_GUIDANCE:
             verdicts.append(
                 f"G_phy is NEGLIGIBLE next to G_fvl (ratio {g_last:.3f}): the physical token is not moving "

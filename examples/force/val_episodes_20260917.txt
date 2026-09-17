@@ -1,0 +1,18 @@
+# DraftVLA task1+2 validation episodes (split decided 2026-09-17).
+# Rule: 2 per condition (1 for cucumber, n=8 after denylist), taken at ~1/3 and ~2/3 of each
+# condition's chronological order -- never a session's first or last episode.
+pi0_train_20260910_225834
+pi0_train_20260910_230757
+pi0_train_20260903_235257
+pi0_train_20260903_235911
+pi0_train_20260916_023034_carton_01_empty
+pi0_train_20260916_023659_carton_01_empty
+pi0_train_20260916_020842_carton_02_full
+pi0_train_20260916_021515_carton_02_full
+pi0_train_20260911_003044
+pi0_train_20260910_233712
+pi0_train_20260910_234534
+pi0_train_20260903_232158
+pi0_train_20260903_233119
+pi0_train_20260911_000135
+pi0_train_20260911_000711

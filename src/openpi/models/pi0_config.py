@@ -55,9 +55,10 @@ class Pi0Config(_model.BaseModelConfig):
     phy_enabled: bool = False
     phy_dim: int = 128
     phy_num_prototypes: int = 4
-    # Dimensionality of the wrench whose safe distribution is supervised. This is intentionally
-    # independent from force_dim: DraftVLA conditions on [mean, difference] (12-D) while retaining
-    # the data-efficient aggregate target [mu_mean, sigma_mean] (2 * 6 = 12 values).
+    # Dimensionality of the physical quantity whose safe distribution is supervised. Intentionally
+    # independent from force_dim. 2026-09-16 contract: the model conditions on the 57-D contact
+    # input while the target is the 1-D scalar grip -> safe_force_dim=1, [mu, sigma] = 2 values.
+    # The legacy 6-D wrench target (12 values) remains valid for the retired configs.
     safe_force_dim: int = 6
     # Loss weights (plan §7.5). lambda_proto is ramped 0 -> target over `phy_proto_ramp_steps`.
     lambda_dist: float = 1.0
@@ -66,6 +67,10 @@ class Pi0Config(_model.BaseModelConfig):
     use_force_nll: bool = False
     phy_proto_ramp_start: int = 0
     phy_proto_ramp_steps: int = 0
+    # Init of the learnable scalar gain on G_phy (todo_training_contract.md §0c, decided 2026-09-16:
+    # 13 lifts the initial g_phy_rel from ~0.023 to ~0.3). 1.0 preserves the legacy behavior. If the
+    # first ~500 steps show loss_flow clearly worse than the forcevla baseline (~0.028), drop to 5-8.
+    phy_action_gain_init: float = 1.0
     # Safe-distribution label normalizer (plan §6.2). ONE scale per physical dim, shared by mu and
     # sigma -- that shared scale is what keeps the KL identical to raw space. `mean` shifts mu only.
     #

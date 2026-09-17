@@ -1,31 +1,29 @@
-"""Convert the draftVLA fruit pick-and-place dataset (JSONL + JPEG frames) to LeRobot format.
+"""Convert the DamageVLA task1+2 dataset (JSONL + JPEG frames) to LeRobot format.
 
-Source: ``../DamageVLA_training_post_process_20260821`` — 26 episodes, 20,344 frames, UR5e pick &
-place over 3 fruits, with per-frame damage-aware supervision labels (see the dataset README).
+2026-09-16 contract (Plan B, outlines/todo_training_contract.md): source is the merged
+``DamageVLA_training_post_process_20260916`` batch — 83 episodes over 8 conditions (6 fruits +
+carton_{empty,full}); 6 are denylisted (draftvla_contact.DEFAULT_EXCLUDE) and never written.
 
-Two things this converter does that the plain force converter does not:
+What this converter produces per frame:
 
-  1. **Episode denylist** (plan §4.1). All 26 episodes carry non-null physical labels, including the
-     4 failed episodes — masking on ``prototype_supervision_valid`` does NOT exclude them because
-     they carry valid group labels. The denylist is the only thing that does; denylisted episodes
-     are never written.
-  2. **Gripper-wrench input**. The model's 12-D force input is ``[mean, signed half-difference]`` of
-     ``tactile_estimated_wrenches.left_estimated`` and ``.right_estimated``. The first six values are
-     the same mean signal used to build the unchanged 12-D ``gt_safe_distribution`` and soft physical
-     prototypes; the last six preserve finger imbalance for action conditioning. The UR flange
-     ``force_torque`` is retained in the raw JSONL but is not used by this training dataset.
+  1. **contact_input (57)** — ``[left_data_zeroed(25), right_data_zeroed(25), gripper_width(1),
+     force_torque_zeroed(6)]`` (contract §A). Fingertip voltages are zeroed per episode over the
+     leading prepare window (draftvla_contact.tactile_zeroing); the flange wrench comes pre-zeroed
+     from the post-process pipeline. The estimated tactile wrench is NOT used anywhere any more.
+  2. **gt_safe_distribution (2)** = [mu_grip, sigma_grip] and **soft_prototype_target (K=6)** — read
+     from the --labels-dir sidecars written by build_safe_group_prototypes.py. The sidecars are
+     REQUIRED: the labels baked into observations.jsonl are the retired 12-D wrench contract, and
+     split-first (contract §F) demands train-only-fitted tables anyway.
 
-Images in ``rgb/`` and ``wrist/`` are ALREADY 224x224 — do not re-crop or resize (plan §4, README §9.9).
+Images in ``rgb/`` and ``wrist/`` are ALREADY 224x224 — do not re-crop or resize.
 
-Usage:
-  # Fast smoke conversion (2 episodes) before committing to the full run.
-  uv run examples/force/convert_draftvla_data_to_lerobot.py --max-episodes 2 --repo-id draftvla/tactile_smoke
-
-  # Full run (22 successful episodes; the 4 failed ones are skipped by default).
-  uv run examples/force/convert_draftvla_data_to_lerobot.py
-
-  # Train-only labels from build_safe_group_prototypes.py --val-episodes (plan §4.3.1 / §8.1).
-  uv run examples/force/convert_draftvla_data_to_lerobot.py --labels-dir prototype_metadata_trainonly
+Usage (always convert train and val separately, from the same labels dir):
+  uv run examples/force/convert_draftvla_data_to_lerobot.py \
+      --labels-dir prototype_metadata_task12_trainonly \
+      --episodes-file <train list> --repo-id draftvla/task12_tactile_train
+  uv run examples/force/convert_draftvla_data_to_lerobot.py \
+      --labels-dir prototype_metadata_task12_trainonly \
+      --episodes-file examples/force/val_episodes_20260917.txt --repo-id draftvla/task12_tactile_val
 
 The output goes to $HF_LEROBOT_HOME/<repo_id> (default ~/.cache/huggingface/lerobot/<repo_id>), which
 the training and norm-stats pipelines read back via the same repo_id.
@@ -36,40 +34,30 @@ import collections
 import json
 import pathlib
 import shutil
+import sys
 
 from lerobot.common.datasets.lerobot_dataset import HF_LEROBOT_HOME
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 import numpy as np
 from PIL import Image
 
-# Resolve the complete uploaded dataset next to the code repository. The similarly named directory
-# inside the repository is an incomplete transfer and must never be selected implicitly.
-DEFAULT_DATA_DIR = pathlib.Path(__file__).resolve().parents[3] / "DamageVLA_training_post_process_20260821"
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import draftvla_contact as contact  # noqa: E402
 
-# The 4 failed episodes are excluded from every loss. They still carry non-null physical labels, so
-# supervision_valid alone cannot remove them from L_flow / L_dist / L_proto.
-DEFAULT_EXCLUDE = (
-    "pi0_train_20260821_152043",  # pear, failed grasp/place
-    "pi0_train_20260821_152329",  # pear, failed grasp/place
-    "pi0_train_20260821_155925",  # banana, failed grasp/place
-    "pi0_train_20260821_161238",  # banana, failed grasp/place
-)
+DEFAULT_DATA_DIR = pathlib.Path(__file__).resolve().parents[3] / "DamageVLA_training_post_process_20260916"
 
-K_PROTOTYPES = 4
-FORCE_INPUT_SIGNAL = "tactile_estimated_wrench_mean_plus_signed_half_difference"
-WRENCH_LAYOUT = ("fx", "fy", "fz", "tx", "ty", "tz")
+DEFAULT_EXCLUDE = contact.DEFAULT_EXCLUDE
 
-# Null-label dummies (plan §5). sigma := 1, NEVER 0: a zero sigma makes the KL's log(sigma_pred/sigma_gt)
-# term log(x/0) = +inf, and 0 * inf = NaN, which masking after the reduction cannot rescue.
-NULL_SAFE_DISTRIBUTION = np.concatenate([np.zeros(6, dtype=np.float32), np.ones(6, dtype=np.float32)])
+K_PROTOTYPES = 6
+FORCE_INPUT_SIGNAL = contact.CONTACT_INPUT_SIGNAL
+
+# Null-label dummies for prepare/reset frames (plan §5). sigma := 1, NEVER 0: a zero sigma makes the
+# KL's log(sigma_pred/sigma_gt) term log(x/0) = +inf, and 0 * inf = NaN, which masking after the
+# reduction cannot rescue.
+NULL_SAFE_DISTRIBUTION = np.asarray([0.0, 1.0], dtype=np.float32)
 NULL_SOFT_PROTOTYPE_TARGET = np.full(K_PROTOTYPES, 1.0 / K_PROTOTYPES, dtype=np.float32)
 
-
-def _load_records(episode_dir: pathlib.Path) -> list[dict]:
-    with (episode_dir / "observations.jsonl").open() as f:
-        records = [json.loads(line) for line in f if line.strip()]
-    records.sort(key=lambda r: r["index"])
-    return records
+_load_records = contact.load_records
 
 
 def _load_label_sidecar(labels_dir: pathlib.Path, episode_name: str) -> dict[int, dict]:
@@ -81,42 +69,18 @@ def _load_label_sidecar(labels_dir: pathlib.Path, episode_name: str) -> dict[int
         return {row["index"]: row for row in (json.loads(line) for line in f if line.strip())}
 
 
-def _two_finger_mean_difference(record: dict, episode_name: str) -> np.ndarray:
-    """Build the 12-D model input [two-finger mean, signed left-minus-right half-difference]."""
-    try:
-        wrenches = record["tactile_estimated_wrenches"]
-        left = np.asarray(wrenches["left_estimated"], dtype=np.float64)
-        right = np.asarray(wrenches["right_estimated"], dtype=np.float64)
-    except (KeyError, TypeError, ValueError) as exc:
-        raise ValueError(
-            f"{episode_name} frame {record.get('index', '?')}: invalid tactile_estimated_wrenches"
-        ) from exc
-    if left.shape != (6,) or right.shape != (6,):
-        raise ValueError(
-            f"{episode_name} frame {record.get('index', '?')}: expected left/right wrench shape (6,), "
-            f"got {left.shape} / {right.shape}"
-        )
-    mean = 0.5 * (left + right)
-    difference = 0.5 * (left - right)
-    force = np.concatenate([mean, difference])
-    if not np.all(np.isfinite(force)):
-        raise ValueError(f"{episode_name} frame {record.get('index', '?')}: non-finite tactile wrench")
-    return force.astype(np.float32)
-
-
-def _frame_labels(record: dict, sidecar: dict | None) -> tuple[np.ndarray, np.ndarray, bool, int]:
-    """(gt_safe_distribution [12], soft_prototype_target [4], supervision_valid, group_id)."""
-    src = sidecar if sidecar is not None else record
-    dist = src.get("gt_safe_distribution")
-    target = src.get("soft_prototype_target")
-    valid = bool(src.get("prototype_supervision_valid", False))
-    group_id = src.get("group_id")
+def _frame_labels(sidecar_row: dict) -> tuple[np.ndarray, np.ndarray, bool, int]:
+    """(gt_safe_distribution [2], soft_prototype_target [6], supervision_valid, group_id)."""
+    dist = sidecar_row.get("gt_safe_distribution")
+    target = sidecar_row.get("soft_prototype_target")
+    valid = bool(sidecar_row.get("prototype_supervision_valid", False))
+    group_id = sidecar_row.get("group_id")
     group_id = -1 if group_id is None else int(group_id)
 
     safe = NULL_SAFE_DISTRIBUTION if dist is None else np.asarray(dist, dtype=np.float32)
     proto = NULL_SOFT_PROTOTYPE_TARGET if target is None else np.asarray(target, dtype=np.float32)
-    if safe.shape != (12,):
-        raise ValueError(f"gt_safe_distribution has shape {safe.shape}, expected (12,)")
+    if safe.shape != (2,):
+        raise ValueError(f"gt_safe_distribution has shape {safe.shape}, expected (2,)")
     if proto.shape != (K_PROTOTYPES,):
         raise ValueError(f"soft_prototype_target has shape {proto.shape}, expected ({K_PROTOTYPES},)")
     return safe, proto, valid, group_id
@@ -126,7 +90,7 @@ def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--data-dir", default=str(DEFAULT_DATA_DIR), help="Root holding pi0_train_*/ dirs")
     p.add_argument(
-        "--repo-id", default="draftvla/fruits_tactile", help="Output LeRobot repo_id (under $HF_LEROBOT_HOME)"
+        "--repo-id", default="draftvla/task12_tactile", help="Output LeRobot repo_id (under $HF_LEROBOT_HOME)"
     )
     p.add_argument(
         "--exclude",
@@ -137,12 +101,15 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--episodes", action="append", metavar="EP", help="Repeatable; convert only these (denylist still applies)"
     )
+    p.add_argument(
+        "--episodes-file", default=None, help="File with one episode name per line (adds to --episodes)"
+    )
     p.add_argument("--max-episodes", type=int, default=None, help="Stop after N episodes (fast smoke conversion)")
     p.add_argument(
         "--labels-dir",
-        default=None,
-        help="Read per-frame labels from a build_safe_group_prototypes.py --val-episodes sidecar "
-        "instead of the shipped in-jsonl labels",
+        required=True,
+        help="Sidecar directory written by build_safe_group_prototypes.py --write. REQUIRED: the "
+        "labels baked into observations.jsonl are the retired 12-D wrench contract.",
     )
     p.add_argument("--fps", type=int, default=10, help="Nominal sample rate (10 Hz nominal / ~8.7 Hz effective)")
     p.add_argument("--push-to-hub", action="store_true", help="Push the converted dataset to the Hugging Face Hub")
@@ -151,18 +118,22 @@ def _parse_args() -> argparse.Namespace:
 
 def main(
     data_dir: str = str(DEFAULT_DATA_DIR),
-    repo_id: str = "draftvla/fruits_tactile",
+    repo_id: str = "draftvla/task12_tactile",
     *,
+    labels_dir: str,
     exclude: list[str] | None = None,
     episodes: list[str] | None = None,
+    episodes_file: str | None = None,
     max_episodes: int | None = None,
-    labels_dir: str | None = None,
     fps: int = 10,
     push_to_hub: bool = False,
 ) -> None:
-    """Convert the uploaded 20260821 DamageVLA batch to a local LeRobot dataset."""
+    """Convert the merged 20260916 DamageVLA batch (task1+2) to a local LeRobot dataset."""
     exclude = list(DEFAULT_EXCLUDE) if exclude is None else exclude
-    episodes = episodes or []
+    episodes = list(episodes or [])
+    if episodes_file:
+        lines = pathlib.Path(episodes_file).read_text().splitlines()
+        episodes += [ln.strip() for ln in lines if ln.strip() and not ln.strip().startswith("#")]
     root = pathlib.Path(data_dir)
     all_dirs = sorted(p.parent for p in root.glob("*/observations.jsonl"))
     if not all_dirs:
@@ -188,9 +159,9 @@ def main(
     if not selected:
         raise ValueError("No episodes left to convert after applying the denylist / --episodes / --max-episodes.")
 
-    labels_root = pathlib.Path(labels_dir) if labels_dir else None
+    labels_root = pathlib.Path(labels_dir)
     print(f"Data root:   {root}")
-    print(f"Labels:      {'sidecar ' + str(labels_root) if labels_root else 'shipped observations.jsonl'}")
+    print(f"Labels:      sidecar {labels_root}")
     print(f"Denylisted:  {len(skipped)} -> {skipped}")
     print(f"Converting:  {len(selected)} episode(s) -> {repo_id}\n")
 
@@ -207,14 +178,19 @@ def main(
             "image": {"dtype": "image", "shape": (224, 224, 3), "names": ["height", "width", "channel"]},
             "wrist_image": {"dtype": "image", "shape": (224, 224, 3), "names": ["height", "width", "channel"]},
             "state": {"dtype": "float32", "shape": (7,), "names": ["state"]},
-            "gripper_wrench": {
+            "contact_input": {
                 "dtype": "float32",
-                "shape": (12,),
-                "names": [f"mean_{name}" for name in WRENCH_LAYOUT] + [f"difference_{name}" for name in WRENCH_LAYOUT],
+                "shape": (contact.CONTACT_INPUT_DIM,),
+                "names": (
+                    [f"left_data_{i}" for i in range(25)]
+                    + [f"right_data_{i}" for i in range(25)]
+                    + ["gripper_width"]
+                    + [f"ft_zeroed_{d}" for d in ("fx", "fy", "fz", "tx", "ty", "tz")]
+                ),
             },
             "actions": {"dtype": "float32", "shape": (7,), "names": ["actions"]},
-            "gt_safe_distribution": {"dtype": "float32", "shape": (12,), "names": ["gt_safe_distribution"]},
-            "soft_prototype_target": {"dtype": "float32", "shape": (4,), "names": ["soft_prototype_target"]},
+            "gt_safe_distribution": {"dtype": "float32", "shape": (2,), "names": ["gt_safe_distribution"]},
+            "soft_prototype_target": {"dtype": "float32", "shape": (K_PROTOTYPES,), "names": ["soft_prototype_target"]},
             # LeRobot represents a scalar as shape (1,) -> datasets.Value (not a Sequence).
             "supervision_valid": {"dtype": "bool", "shape": (1,), "names": ["supervision_valid"]},
             "group_id": {"dtype": "int32", "shape": (1,), "names": ["group_id"]},
@@ -227,20 +203,22 @@ def main(
     valid_counts: collections.Counter = collections.Counter()
     for episode_dir in selected:
         records = _load_records(episode_dir)
-        sidecar = _load_label_sidecar(labels_root, episode_dir.name) if labels_root else None
+        sidecar = _load_label_sidecar(labels_root, episode_dir.name)
+        condition = contact.episode_condition(records, episode_dir.name)
+        zeroing = contact.tactile_zeroing(records, episode_dir.name)
 
         for r in records:
             tcp = r["tcp_pose"]
             state = np.asarray([*tcp["position_xyz"], *tcp["rotation_vector"], r["gripper_width"]], dtype=np.float32)
-            gripper_wrench = _two_finger_mean_difference(r, episode_dir.name)
-            safe, proto, valid, group_id = _frame_labels(r, sidecar[r["index"]] if sidecar else None)
+            contact_input = contact.contact_input_57(r, zeroing, episode_dir.name)
+            safe, proto, valid, group_id = _frame_labels(sidecar[r["index"]])
             valid_counts[valid] += 1
             dataset.add_frame(
                 {
                     "image": np.asarray(Image.open(episode_dir / r["image_path"]).convert("RGB")),
                     "wrist_image": np.asarray(Image.open(episode_dir / r["wrist_image_path"]).convert("RGB")),
                     "state": state,
-                    "gripper_wrench": gripper_wrench,
+                    "contact_input": contact_input,
                     "actions": np.asarray(r["action_7"], dtype=np.float32),
                     "gt_safe_distribution": safe,
                     "soft_prototype_target": proto,
@@ -251,9 +229,11 @@ def main(
             )
         dataset.save_episode()
 
-        fruit = next((r["group_fruit"] for r in records if r.get("group_fruit")), "?")
         total_frames += len(records)
-        print(f"Saved {episode_dir.name}  fruit={fruit:<7} frames={len(records):>5}")
+        print(
+            f"Saved {episode_dir.name}  condition={condition:<13} frames={len(records):>5} "
+            f"zero_window={zeroing.window_size}"
+        )
 
     print("\n" + "=" * 100)
     print(f"Episodes converted: {len(selected)}   skipped (denylist): {len(skipped)}   frames: {total_frames}")
@@ -270,8 +250,11 @@ def main(
         "episodes": len(selected),
         "frames": total_frames,
         "excluded_episodes": skipped,
+        "labels_dir": str(labels_root.resolve()),
         "fps": fps,
         "force_input_signal": FORCE_INPUT_SIGNAL,
+        "contact_input_dim": contact.CONTACT_INPUT_DIM,
+        "k_prototypes": K_PROTOTYPES,
     }
     (output_path / ".draftvla_conversion_complete.json").write_text(json.dumps(completion, indent=2) + "\n")
     print(f"Completion marker: {output_path / '.draftvla_conversion_complete.json'}")
@@ -287,10 +270,11 @@ if __name__ == "__main__":
     main(
         data_dir=args.data_dir,
         repo_id=args.repo_id,
+        labels_dir=args.labels_dir,
         exclude=args.exclude,
         episodes=args.episodes,
+        episodes_file=args.episodes_file,
         max_episodes=args.max_episodes,
-        labels_dir=args.labels_dir,
         fps=args.fps,
         push_to_hub=args.push_to_hub,
     )

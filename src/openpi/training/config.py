@@ -282,14 +282,17 @@ class LeRobotAlohaDataConfig(DataConfigFactory):
 
 @dataclasses.dataclass(frozen=True)
 class LeRobotDraftVLADataConfig(DataConfigFactory):
-    """Data config for the DraftVLA (Damage-Aware ForceVLA) fruit dataset.
+    """Data config for the DraftVLA task1+2 dataset (2026-09-16 contract).
 
-    Uses image + wrist_image + state(7) + [two-finger mean, signed half-difference] wrench(12) +
-    actions(7) -- plus the physical-branch supervision keys, which ride through the pipeline and are
-    split into the loader's `aux` dict. See outlines/draftvla_plan.md v2.1 §5.
+    Uses image + wrist_image + state(7) + contact_input(57) + actions(7) -- plus the physical-branch
+    supervision keys, which ride through the pipeline and are split into the loader's `aux` dict.
+    contact_input = [left_data_zeroed(25), right_data_zeroed(25), gripper_width(1),
+    force_torque_zeroed(6)] (todo_training_contract.md §A).
 
     Built by examples/force/convert_draftvla_data_to_lerobot.py, which applies the mandatory episode
-    denylist and uses the tactile estimated wrench instead of the UR flange F/T.
+    denylist and reads labels from build_safe_group_prototypes.py sidecars (split-first, §F).
+    NOTE: repos converted under the retired 12-D wrench contract (draftvla/fruits_tactile*) do not
+    have the `contact_input` feature and fail loudly here -- that is intentional.
     """
 
     @override
@@ -304,7 +307,7 @@ class LeRobotDraftVLADataConfig(DataConfigFactory):
                         "observation/image": "image",
                         "observation/wrist_image": "wrist_image",
                         "observation/state": "state",
-                        "observation/gripper_wrench": "gripper_wrench",
+                        "observation/contact_input": "contact_input",
                         "actions": "actions",
                         "prompt": "prompt",
                         "gt_safe_distribution": "gt_safe_distribution",
@@ -981,8 +984,109 @@ _CONFIGS = [
         num_train_steps=200,
         fsdp_devices=1,
     ),
+    # === 2026-09-16 contract (Plan B): task1+2, 57-D contact input, 1-D grip target, 16 groups ===
+    # Data: draftvla/task12_tactile_{train,val} from convert_draftvla_data_to_lerobot.py with the
+    # train-only label sidecars. All three arms share data, freeze, and force_dim so the comparison
+    # isolates exactly one factor per step (contract §0 / Q1-Q3).
+    TrainConfig(
+        name="pi0_draftvla_task12",
+        model=pi0_config.Pi0Config(
+            action_dim=32,
+            action_horizon=8,
+            force_aware=True,
+            force_dim=57,
+            force_fusion="fvlmoe",
+            freeze_vlm=True,
+            phy_enabled=True,
+            safe_force_dim=1,
+            phy_num_prototypes=6,
+            lambda_dist=1.0,
+            lambda_proto=0.05,
+            # Ramp moved earlier (contract §0c conclusion 1): 0 -> 0.05 over steps 1000..3000.
+            phy_proto_ramp_start=1000,
+            phy_proto_ramp_steps=2000,
+            # Learnable G_phy gain, init 13 (contract §0c: lifts g_phy_rel from ~0.023 to ~0.3).
+            phy_action_gain_init=13.0,
+            # From build_safe_group_prototypes.py on the 62-episode train split (mean of the 16
+            # group mus / median of the 16 group sigmas); recompute whenever the labels change.
+            phy_label_mean=(1.030667,),
+            phy_label_scale=(0.404691,),
+        ),
+        data=LeRobotDraftVLADataConfig(
+            repo_id="draftvla/task12_tactile_train",
+            base_config=DataConfig(prompt_from_task=True),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "gs://openpi-assets/checkpoints/pi0_base/params",
+            extra_missing_regex=".*(force_proj|fvlmoe|phy_proj|phy_action_proj|phy_dist_head|phy_proto_cls).*",
+        ),
+        # NOTE: safe_force_dim / phy_num_prototypes are irrelevant to the freeze filter (it keys on
+        # parameter-tree paths) and their 1-D form would demand matching label tuples here, so the
+        # filter copy keeps the defaults.
+        freeze_filter=pi0_config.Pi0Config(
+            action_dim=32,
+            action_horizon=8,
+            force_aware=True,
+            force_dim=57,
+            force_fusion="fvlmoe",
+            freeze_vlm=True,
+            phy_enabled=True,
+        ).get_freeze_filter(),
+        ema_decay=None,
+        batch_size=16,
+        num_train_steps=10_000,
+        fsdp_devices=1,
+    ),
+    TrainConfig(
+        # Q1/Q2 baseline: same 57-D data + freeze, physical branch OFF (ForceVLA-style).
+        name="pi0_draftvla_task12_forcevla",
+        model=pi0_config.Pi0Config(
+            action_dim=32,
+            action_horizon=8,
+            force_aware=True,
+            force_dim=57,
+            force_fusion="fvlmoe",
+            freeze_vlm=True,
+        ),
+        data=LeRobotDraftVLADataConfig(
+            repo_id="draftvla/task12_tactile_train",
+            base_config=DataConfig(prompt_from_task=True),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "gs://openpi-assets/checkpoints/pi0_base/params",
+            extra_missing_regex=".*(force_proj|fvlmoe).*",
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            action_dim=32,
+            action_horizon=8,
+            force_aware=True,
+            force_dim=57,
+            force_fusion="fvlmoe",
+            freeze_vlm=True,
+        ).get_freeze_filter(),
+        ema_decay=None,
+        batch_size=16,
+        num_train_steps=10_000,
+        fsdp_devices=1,
+    ),
+    TrainConfig(
+        # Q1 baseline: vanilla pi0 on the same data, no force input at all, VLM still frozen.
+        name="pi0_draftvla_task12_noforce",
+        model=pi0_config.Pi0Config(action_dim=32, action_horizon=8, freeze_vlm=True),
+        data=LeRobotDraftVLADataConfig(
+            repo_id="draftvla/task12_tactile_train",
+            base_config=DataConfig(prompt_from_task=True),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi0_base/params"),
+        freeze_filter=pi0_config.Pi0Config(action_dim=32, action_horizon=8, freeze_vlm=True).get_freeze_filter(),
+        ema_decay=None,
+        batch_size=16,
+        num_train_steps=10_000,
+        fsdp_devices=1,
+    ),
     TrainConfig(
         # Ablation arm `forcevla` (plan §8.3): identical data + freeze, physical branch OFF.
+        # RETIRED (12-D wrench contract): kept for provenance of the 2026-08/09 runs.
         name="pi0_draftvla_forcevla",
         model=pi0_config.Pi0Config(
             action_dim=32,

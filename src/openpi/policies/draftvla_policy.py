@@ -1,13 +1,14 @@
 """DraftVLA (Damage-Aware ForceVLA) robot transforms.
 
-Extends the force-aware transforms with the physical-branch supervision (outlines/draftvla_plan.md
-v2.1). The model inputs are unchanged from `ForceInputs` -- two RGB views, the prompt, state(7), and
-the 12-D estimated gripper wrench ``[two-finger mean(6), signed half-difference(6)]``. The extra keys
-carried here are *labels*, present during training only and never during inference:
+Extends the force-aware transforms with the physical-branch supervision (2026-09-16 contract,
+outlines/todo_training_contract.md). The model inputs are two RGB views, the prompt, state(7), and
+the 57-D contact input ``[left_data_zeroed(25), right_data_zeroed(25), gripper_width(1),
+force_torque_zeroed(6)]`` (contract §A). The extra keys carried here are *labels*, present during
+training only and never during inference:
 
-    gt_safe_distribution   [12]  stage-level tactile safe distribution, [mu x6, sigma x6]
-    soft_prototype_target  [4]   soft prototype target
-    supervision_valid      ()    bool mask -- 56.4% of kept frames have a physical label
+    gt_safe_distribution   [2]   group-level safe-grip distribution, [mu_grip, sigma_grip]
+    soft_prototype_target  [6]   soft prototype target (K=6)
+    supervision_valid      ()    bool mask -- prepare/reset frames carry no physical label
     group_id               ()    supervision-only, for logging (plan rule 9)
 
 These ride through the transform pipeline as plain dict keys and are split off into the loader's
@@ -15,10 +16,11 @@ These ride through the transform pipeline as plain dict keys and are split off i
 provably never enters the model's input PyTree -- that is the point of routing them this way rather
 than adding `Observation` fields.
 
-For DraftVLA, ``observation/gripper_wrench`` must be ``concat(0.5*(left+right), 0.5*(left-right))``.
-Training and inference must use the same estimator, left/right order, component order, coordinate
-convention, and units. The generic model still names the resulting tensor ``force``. The supervised
-safe distribution remains the 12-D ``[mu_mean(6), sigma_mean(6)]`` aggregate target.
+For DraftVLA, ``observation/contact_input`` must follow examples/force/draftvla_contact.py exactly:
+the fingertip `_data` voltages zeroed per episode over the leading prepare window, the MEASURED
+gripper width in metres, and the pipeline's `force_torque_zeroed`. Training and inference must use
+the same zeroing, ordering, and units. The generic model still names the resulting tensor
+``force``. The supervised safe distribution is the scalar-grip ``[mu, sigma]`` target.
 """
 
 import dataclasses
@@ -39,7 +41,7 @@ def make_draftvla_example() -> dict:
         "observation/state": np.random.rand(7),
         "observation/image": np.random.randint(256, size=(224, 224, 3), dtype=np.uint8),
         "observation/wrist_image": np.random.randint(256, size=(224, 224, 3), dtype=np.uint8),
-        "observation/gripper_wrench": np.random.rand(12),
+        "observation/contact_input": np.random.rand(57),
         "prompt": "grasp the banana from the table and place it into the box",
     }
 
@@ -51,10 +53,10 @@ class DraftVLAInputs(transforms.DataTransformFn):
     model_type: _model.ModelType
 
     def __call__(self, data: dict) -> dict:
-        # ForceInputs is shared with legacy flange-F/T configs. Adapt DraftVLA's explicit tactile
+        # ForceInputs is shared with legacy flange-F/T configs. Adapt DraftVLA's explicit contact
         # API key at this boundary so a deployment cannot silently send the old flange signal.
         force_data = dict(data)
-        force_data["observation/force_torque"] = data["observation/gripper_wrench"]
+        force_data["observation/force_torque"] = data["observation/contact_input"]
         inputs = force_policy.ForceInputs(model_type=self.model_type)(force_data)
         # Training only: absent at inference, which is why each key is optional.
         for key in AUX_KEYS:

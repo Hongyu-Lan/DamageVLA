@@ -1,3 +1,39 @@
+> **2026-09-16 contract (Plan B) — CURRENT.** The text below this banner describes the retired
+> 12-D estimated-wrench contract and is kept for the provenance of the 2026-08/09 runs. The current
+> pipeline is:
+>
+> | Config | Dataset | Notes |
+> |---|---|---|
+> | `pi0_draftvla_task12` | `draftvla/task12_tactile_train` | 57-D `contact_input`, 1-D grip target, K=6, learnable G_phy gain (init 13), ramp 1k→3k |
+> | `pi0_draftvla_task12_forcevla` | `draftvla/task12_tactile_train` | Same data + freeze, physical branch OFF |
+> | `pi0_draftvla_task12_noforce` | `draftvla/task12_tactile_train` | Vanilla π₀, no force input |
+>
+> `contact_input(57) = [left_data_zeroed(25), right_data_zeroed(25), gripper_width(1),
+> force_torque_zeroed(6)]` — see `draftvla_contact.py` (single source of truth; a robot client must
+> apply the same per-episode fingertip zeroing). The estimated tactile wrench is not used anywhere.
+>
+> ```bash
+> # 1) labels + split (split-first: statistics fit on the 62 train episodes only)
+> uv run examples/force/build_safe_group_prototypes.py \
+>     --val-file examples/force/val_episodes_20260917.txt \
+>     --output-dir prototype_metadata_task12_trainonly --write
+> # 2) validate raw data + sidecars
+> uv run examples/force/validate_draftvla_data.py --labels-dir prototype_metadata_task12_trainonly
+> # 3) convert train and val separately
+> uv run examples/force/convert_draftvla_data_to_lerobot.py --labels-dir prototype_metadata_task12_trainonly \
+>     --episodes-file examples/force/train_episodes_20260917.txt --repo-id draftvla/task12_tactile_train
+> uv run examples/force/convert_draftvla_data_to_lerobot.py --labels-dir prototype_metadata_task12_trainonly \
+>     --episodes-file examples/force/val_episodes_20260917.txt --repo-id draftvla/task12_tactile_val
+> # 4) norm stats on the TRAIN repo only (run_train.sh does this), then train
+> MODE=task12 bash run_train.sh
+> # 5) offline eval on the val repo -> checkpoint selection
+> uv run examples/force/eval_draftvla_offline.py --config-name pi0_draftvla_task12 \
+>     --checkpoint-dir checkpoints/pi0_draftvla_task12/<exp>/<step>
+> ```
+>
+> Spec: `outlines/todo_training_contract.md` (in the DamageVLA GitHub repo; local copy under
+> `/leonardo_work/IscrC_VLA/DamageVLA/docs_20260917/`).
+
 # Force-aware π₀ (ForceVLA-style) and DraftVLA
 
 This example extends **π₀** (flow-matching VLA) with a 6-axis **force/torque** modality, following

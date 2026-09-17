@@ -139,7 +139,11 @@ class Pi0(_model.BaseModel):
             self.phy_label_scale = tuple(config.phy_label_scale)
             self.phy_proj = _physical.PhysicalProjector(paligemma_config.width, config.phy_dim, rngs=rngs)
             self.phy_action_proj = _physical.PhysicalActionProjector(
-                config.phy_dim, action_expert_config.width, config.action_horizon, rngs=rngs
+                config.phy_dim,
+                action_expert_config.width,
+                config.action_horizon,
+                gain_init=config.phy_action_gain_init,
+                rngs=rngs,
             )
             self.phy_dist_head = _physical.SafeForceDistributionHead(config.phy_dim, config.safe_force_dim, rngs=rngs)
             self.phy_proto_cls = _physical.PrototypeClassifier(config.phy_dim, config.phy_num_prototypes, rngs=rngs)
@@ -388,9 +392,10 @@ class Pi0(_model.BaseModel):
         kl_baseline = _physical.diagonal_gaussian_kl(
             mu_safe, sigma_safe, jnp.zeros_like(mu_safe), jnp.ones_like(sigma_safe)
         )
-        # Per-dim KL: attributes the loss to a wrench dim (the torque dims carry ~100x the scale).
+        # Per-dim KL: attributes the loss to a physical dim. The 1-D contract supervises the scalar
+        # grip (todo_training_contract.md §B); the legacy 6-D wrench keeps its per-axis names.
         kl_dims = _physical.diagonal_gaussian_kl_per_dim(mu_safe, sigma_safe, phy["mu_norm"], phy["sigma_norm"])
-        dim_names = ["fx", "fy", "fz", "tx", "ty", "tz"][: self.safe_force_dim]
+        dim_names = ["grip"] if self.safe_force_dim == 1 else ["fx", "fy", "fz", "tx", "ty", "tz"][: self.safe_force_dim]
 
         metrics = {
             "loss_flow": loss_flow,
@@ -414,6 +419,9 @@ class Pi0(_model.BaseModel):
             "g_phy_rms": phy["g_phy_rms"],
             "g_fvl_rms": phy["g_fvl_rms"],
             "g_phy_rel": phy["g_phy_rms"] / (phy["g_fvl_rms"] + 1e-9),
+            # The learnable gain on G_phy. Diagnostic only: gain and the projector weights multiply,
+            # so read g_phy_rel for the actual magnitude; gain alone is not interpretable.
+            "phy_alpha": self.phy_action_proj.gain.value,
         }
         metrics |= {f"kl_{name}": _physical.masked_mean(kl_dims[:, i], valid) for i, name in enumerate(dim_names)}
         return total, metrics

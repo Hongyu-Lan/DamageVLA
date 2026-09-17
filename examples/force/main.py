@@ -10,7 +10,7 @@ Then run this client:
 
   uv run examples/force/main.py
 
-By default it sends the current DraftVLA contract, a 12-D ``observation/gripper_wrench`` containing
+By default it sends the current DraftVLA contract, a 57-D ``observation/contact_input`` containing
 ``[two-finger mean(6), signed half-difference(6)]``. Pass
 ``--no-draftvla`` for legacy ``pi0_force_*`` checkpoints that expect flange
 ``observation/force_torque``. On a real robot, replace ``_random_observation`` with live sensor reads.
@@ -39,18 +39,21 @@ class Args:
 
 
 def _random_observation(prompt: str, *, draftvla: bool) -> dict:
-    # The state and wrench layouts MUST match the relevant conversion script:
-    #   state        = [tcp_position_xyz(3), tcp_rotation_vector(3), gripper_width(1)]  -> (7,)
-    #   DraftVLA wrench = [mean_fx..mean_tz, difference_fx..difference_tz] -> (12,)
-    #   legacy wrench   = [fx, fy, fz, tx, ty, tz]                        -> (6,)
+    # The state and contact layouts MUST match the relevant conversion script:
+    #   state   = [tcp_position_xyz(3), tcp_rotation_vector(3), gripper_width(1)]  -> (7,)
+    #   DraftVLA contact_input = [left_data_zeroed(25), right_data_zeroed(25),
+    #                             gripper_width(1), force_torque_zeroed(6)]        -> (57,)
+    #     (a real robot client must apply the SAME per-episode fingertip zeroing --
+    #      see examples/force/draftvla_contact.py)
+    #   legacy wrench = [fx, fy, fz, tx, ty, tz]                                   -> (6,)
     observation = {
         "observation/state": np.random.rand(7),
         "observation/image": np.random.randint(256, size=(224, 224, 3), dtype=np.uint8),
         "observation/wrist_image": np.random.randint(256, size=(224, 224, 3), dtype=np.uint8),
         "prompt": prompt,
     }
-    wrench_key = "observation/gripper_wrench" if draftvla else "observation/force_torque"
-    observation[wrench_key] = np.random.rand(12 if draftvla else 6)
+    wrench_key = "observation/contact_input" if draftvla else "observation/force_torque"
+    observation[wrench_key] = np.random.rand(57 if draftvla else 6)
     return observation
 
 

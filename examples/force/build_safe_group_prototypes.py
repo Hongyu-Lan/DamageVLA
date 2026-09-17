@@ -1,114 +1,80 @@
-"""Rebuild the group-level safe wrench distributions and the K-means safe-interaction prototypes.
+"""Build the 16-group safe-GRIP distributions and K-means prototypes (contract of 2026-09-16, Plan B).
 
-This recreates the annotation script described by ``DATASET_README_zh.md`` §7/§8 (the original is not
-on disk). It is the prerequisite for the K/tau ablations and for the train-only label rebuild that
-closes the label-side leak (plan §4.3.1 / §8.1).
+Replaces the 12-D wrench recipe (kept as build_safe_group_prototypes_legacy_wrench12.py; the GitHub
+repo history has it too). The new recipe, per outlines/todo_training_contract.md §B/§D/§E/§F and
+data_analysis_20260916.md:
 
-Recipe (plan §4.2, verified against the shipped labels):
-  group   = (task=pick_place, fruit, stage) over stages {grasp, lift, translate, place} -> 12 groups.
-  signal  = per-dim mean of ``tactile_estimated_wrenches.left_estimated`` and ``.right_estimated``.
-  mu_g    = mean over all frames of the group; sigma_g = population std (ddof=0).
-  safe_distribution_g = concat(mu_g, sigma_g)                                            [12]
-  q_g     = concat(norm(mu_g), norm(log(clamp(sigma_g, 1e-4))))                          [12]
-            where norm is per-dim robust (x - median) / (IQR + 1e-6) over the groups in use.
-  C       = K-means(Q, K=4, seed=0)                                                      [K, 12]
-  Y       = softmax(-mean_sq_dist(Q, C) / tau_q)                                         [12, K]
+  group    = (task=pick_place, condition, stage_group); 8 conditions x {grasp, hold} -> 16 groups.
+             condition = fruit name (6) or carton_{empty,full} (2); hold = lift+translate+place.
+  signal   = scalar grip_t = 0.5*(sum left_data_zeroed + sum right_data_zeroed), per-episode zeroed
+             over the leading still-open prepare window (draftvla_contact.tactile_zeroing).
+  mu_g     = mean over the EPISODE stage-group means of the contributing (train) episodes.
+  sigma_g  = population std (ddof=0) over those episode means, clamped to >= 0.0051.
+             EPISODE-level on purpose: sigma_g is "variation across safe demonstrations"
+             (data_analysis §3); frame-level pooling would mostly measure the closing ramp
+             inside the grasp stage (5x inflation there), which is trajectory structure.
+  gt_safe_distribution_g = [mu_g, sigma_g]                                     (2 numbers)
+  descriptor_g = robust-normed [mu, log sd, contact_area, cop_row, stiffness]  (5 features)
+             Formulas and aggregation are 1:1 with outlines/analyze_groups.py (the K-scan script):
+             the descriptor's sd is the MEAN over episodes of the within-episode frame-level std
+             (unlike the LABEL sigma, which is the std over episode means); stiffness is the
+             condition-level MEAN over episodes, shared by the condition's two stage groups.
+  C        = K-means(descriptors, K=6, seed=0, 50 restarts);  Y = softmax(-mean_sq_dist / tau_q).
+
+split-first (contract §F): --val-episodes/--val-file hold episodes out of ALL statistics; sidecar
+labels.jsonl files are written for every episode (train, val, denylisted alike) by looking up the
+train-fitted table -- the converter's --labels-dir consumes them and the denylist drops what must
+never be trained on.
 
 Usage:
-  # Regression gate: reproduce the shipped labels from the 22 contributing episodes.
-  uv run examples/force/build_safe_group_prototypes.py --verify-parity
-
-  # Rebuild the shipped tables.
-  uv run examples/force/build_safe_group_prototypes.py --output-dir /tmp/proto --write
-
-  # Train-only rebuild (plan §8.1): additionally hold out the 4 validation episodes and emit
-  # per-episode ``labels.jsonl`` sidecars for the converter's --labels-dir.
   uv run examples/force/build_safe_group_prototypes.py \
-      --val-episodes <potato-validation-episode> --val-episodes <pear-validation-episode> \
-      --val-episodes <banana-validation-episode> \
-      --output-dir prototype_metadata_trainonly --write
-
-Nothing is written unless --write (or --verify-parity, which only reads) is given.
+      --val-file examples/force/val_episodes_20260917.txt \
+      --output-dir prototype_metadata_task12_trainonly --write
 """
 
 import argparse
 import dataclasses
 import json
 import pathlib
+import sys
 
 import numpy as np
 
-# Resolve the complete uploaded dataset next to the repository.
-DEFAULT_DATA_DIR = pathlib.Path(__file__).resolve().parents[3] / "DamageVLA_training_post_process_20260821"
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import draftvla_contact as contact  # noqa: E402
 
-# The 4 failed episodes are excluded from both group statistics and training conversion.
-DEFAULT_EXCLUDE = (
-    "pi0_train_20260821_152043",  # pear, failed grasp/place
-    "pi0_train_20260821_152329",  # pear, failed grasp/place
-    "pi0_train_20260821_155925",  # banana, failed grasp/place
-    "pi0_train_20260821_161238",  # banana, failed grasp/place
-)
+DEFAULT_DATA_DIR = pathlib.Path(__file__).resolve().parents[3] / "DamageVLA_training_post_process_20260916"
 
-TASK = "pick_place"
-FRUITS = ("banana", "pear", "potato")
-STAGES = ("grasp", "lift", "translate", "place")
-WRENCH_LAYOUT = ("fx", "fy", "fz", "tx", "ty", "tz")
-SIGMA_CLAMP = 1e-4
 IQR_EPS = 1e-6
-
-# group_id = fruit_index * len(STAGES) + stage_index; verified against every labeled frame on disk.
-GROUP_KEYS = tuple((TASK, fruit, stage) for fruit in FRUITS for stage in STAGES)
-GROUP_INDEX = {key: i for i, key in enumerate(GROUP_KEYS)}
-
-
-def _load_records(episode_dir: pathlib.Path) -> list[dict]:
-    with (episode_dir / "observations.jsonl").open() as f:
-        records = [json.loads(line) for line in f if line.strip()]
-    records.sort(key=lambda r: r["index"])
-    return records
-
-
-def _two_finger_mean(record: dict) -> np.ndarray:
-    """Per-dim mean of the left and right estimated tactile wrenches -> [6]."""
-    wrenches = record["tactile_estimated_wrenches"]
-    left = np.asarray(wrenches["left_estimated"], dtype=np.float64)
-    right = np.asarray(wrenches["right_estimated"], dtype=np.float64)
-    return 0.5 * (left + right)
+DESCRIPTOR_FEATURES = ("mu", "log_sigma", "contact_area", "cop_offset", "stiffness")
 
 
 def _robust_norm(x: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Per-dim robust normalization over the group axis: (x - median) / (IQR + eps)."""
     median = np.median(x, axis=0)
     iqr = np.percentile(x, 75, axis=0) - np.percentile(x, 25, axis=0)
     return (x - median) / (iqr + IQR_EPS), median, iqr
 
 
 def _kmeans_plusplus_init(x: np.ndarray, k: int, rng: np.random.Generator) -> np.ndarray:
-    """Deterministic k-means++ seeding (Arthur & Vassilvitskii 2007)."""
     n = x.shape[0]
     centers = np.empty((k, x.shape[1]), dtype=x.dtype)
     centers[0] = x[rng.integers(n)]
     closest_sq = ((x - centers[0]) ** 2).sum(-1)
     for i in range(1, k):
         total = closest_sq.sum()
-        if total <= 0:  # All points already coincide with a center.
-            centers[i] = x[rng.integers(n)]
-        else:
-            centers[i] = x[rng.choice(n, p=closest_sq / total)]
+        centers[i] = x[rng.integers(n)] if total <= 0 else x[rng.choice(n, p=closest_sq / total)]
         closest_sq = np.minimum(closest_sq, ((x - centers[i]) ** 2).sum(-1))
     return centers
 
 
 def _kmeans(x: np.ndarray, k: int, *, seed: int = 0, n_init: int = 50, max_iter: int = 300) -> np.ndarray:
-    """Lloyd's algorithm with k-means++ seeding. Deterministic given ``seed``; returns centers [k, D]."""
     best_centers, best_inertia = None, np.inf
     for run in range(n_init):
         rng = np.random.default_rng(seed + run)
         centers = _kmeans_plusplus_init(x, k, rng)
         labels = np.zeros(x.shape[0], dtype=np.int64)
         for _ in range(max_iter):
-            dist_sq = ((x[:, None, :] - centers[None, :, :]) ** 2).sum(-1)
-            new_labels = dist_sq.argmin(-1)
+            new_labels = ((x[:, None, :] - centers[None, :, :]) ** 2).sum(-1).argmin(-1)
             new_centers = centers.copy()
             for j in range(k):
                 members = x[new_labels == j]
@@ -121,7 +87,6 @@ def _kmeans(x: np.ndarray, k: int, *, seed: int = 0, n_init: int = 50, max_iter:
         inertia = ((x - centers[labels]) ** 2).sum()
         if inertia < best_inertia - 1e-12:
             best_centers, best_inertia = centers, inertia
-    # Canonical ordering so the run is reproducible regardless of the init draw.
     order = np.lexsort(best_centers.T[::-1])
     return best_centers[order]
 
@@ -133,221 +98,194 @@ def _softmax(x: np.ndarray, axis: int = -1) -> np.ndarray:
 
 
 @dataclasses.dataclass
+class EpisodeFeatures:
+    name: str
+    condition: str
+    zero_window: int
+    n_frames: int
+    stage_group_mean: dict[str, float]  # stage_group -> episode mean grip
+    stage_group_std: dict[str, float]  # within-episode frame-level std (descriptor sd feature)
+    stage_group_frames: dict[str, int]
+    area_mean: dict[str, float]
+    cop_mean: dict[str, float | None]
+    stiffness: float | None
+
+
+def _episode_features(episode_dir: pathlib.Path) -> EpisodeFeatures:
+    records = contact.load_records(episode_dir)
+    name = episode_dir.name
+    condition = contact.episode_condition(records, name)
+    zeroing = contact.tactile_zeroing(records, name)
+    thr = zeroing.contact_threshold
+
+    grips, stages, widths = [], [], []
+    areas, cops = [], []
+    for r in records:
+        left, right = contact.zeroed_tactile(r, zeroing)
+        grips.append(contact.grip_scalar(left, right))
+        stages.append(r.get("stage") or "")
+        widths.append(float(r["gripper_width"]))
+        areas.append(contact.contact_area(left, right, thr))
+        cops.append(contact.cop_row(left, right, thr))
+    grips = np.asarray(grips)
+    stages_arr = np.asarray(stages)
+    widths_arr = np.asarray(widths)
+
+    sg_mean, sg_std, sg_frames, sg_area, sg_cop = {}, {}, {}, {}, {}
+    for sg in contact.STAGE_GROUPS:
+        mask = np.isin(stages_arr, [s for s, g in contact.STAGE_TO_GROUP.items() if g == sg])
+        sg_frames[sg] = int(mask.sum())
+        sg_mean[sg] = float(grips[mask].mean()) if mask.any() else float("nan")
+        sg_std[sg] = float(grips[mask].std()) if mask.any() else float("nan")
+        sg_area[sg] = float(np.asarray(areas)[mask].mean()) if mask.any() else float("nan")
+        valid_cops = [c for c, m in zip(cops, mask) if m and c is not None]
+        sg_cop[sg] = float(np.mean(valid_cops)) if valid_cops else None
+
+    return EpisodeFeatures(
+        name=name,
+        condition=condition,
+        zero_window=zeroing.window_size,
+        n_frames=len(records),
+        stage_group_mean=sg_mean,
+        stage_group_std=sg_std,
+        stage_group_frames=sg_frames,
+        area_mean=sg_area,
+        cop_mean=sg_cop,
+        stiffness=contact.episode_stiffness(grips, widths_arr, stages_arr),
+    )
+
+
+@dataclasses.dataclass
 class Tables:
-    safe_distribution_all: np.ndarray  # [12, 12]
-    descriptors: np.ndarray  # [12, 12]
-    prototype_centers: np.ndarray  # [K, 12]
-    soft_prototype_targets_all: np.ndarray  # [12, K]
+    safe_distribution_all: np.ndarray  # [16, 2] = [mu, sigma]
+    descriptors: np.ndarray  # [16, 5] robust-normed
+    descriptors_raw: np.ndarray  # [16, 5] before norm
+    prototype_centers: np.ndarray  # [K, 5]
+    soft_prototype_targets_all: np.ndarray  # [16, K]
     normalizer_stats: dict[str, np.ndarray]
-    group_frame_counts: np.ndarray  # [16]
-    group_episode_counts: np.ndarray  # [16]
+    group_frame_counts: np.ndarray
+    group_episode_counts: np.ndarray
+    episode_means: dict[str, dict[str, float]]  # audit: episode -> stage_group -> mean
 
 
-def _collect_group_frames(episode_dirs: list[pathlib.Path]) -> tuple[dict[int, list[np.ndarray]], dict[int, set[str]]]:
-    frames: dict[int, list[np.ndarray]] = {g: [] for g in range(len(GROUP_KEYS))}
-    episodes: dict[int, set[str]] = {g: set() for g in range(len(GROUP_KEYS))}
-    for episode_dir in episode_dirs:
-        for r in _load_records(episode_dir):
-            stage = r.get("stage")
-            if stage not in STAGES:
-                continue
-            fruit = r.get("group_fruit")
-            key = (r.get("group_task") or TASK, fruit, stage)
-            if key not in GROUP_INDEX:
-                continue
-            group_id = GROUP_INDEX[key]
-            # group_id in the jsonl is authoritative for group identity (plan §4.2).
-            if r.get("group_id") is not None and r["group_id"] >= 0 and r["group_id"] != group_id:
-                raise ValueError(f"{episode_dir.name} frame {r['index']}: group_id {r['group_id']} != {group_id} {key}")
-            frames[group_id].append(_two_finger_mean(r))
-            episodes[group_id].add(episode_dir.name)
-    return frames, episodes
+def _build_tables(train_feats: list[EpisodeFeatures], *, k: int, tau_q: float) -> Tables:
+    n_group = len(contact.GROUP_KEYS)
+    by_group_means: dict[int, list[float]] = {g: [] for g in range(n_group)}
+    by_group_stds: dict[int, list[float]] = {g: [] for g in range(n_group)}
+    by_group_frames: dict[int, int] = {g: 0 for g in range(n_group)}
+    by_group_eps: dict[int, int] = {g: 0 for g in range(n_group)}
+    by_group_area: dict[int, list[float]] = {g: [] for g in range(n_group)}
+    by_group_cop: dict[int, list[float]] = {g: [] for g in range(n_group)}
+    by_cond_stiff: dict[str, list[float]] = {c: [] for c in contact.CONDITIONS}
 
+    for f in train_feats:
+        for sg in contact.STAGE_GROUPS:
+            g = contact.GROUP_INDEX[(contact.TASK, f.condition, sg)]
+            if f.stage_group_frames[sg] == 0 or not np.isfinite(f.stage_group_mean[sg]):
+                raise ValueError(f"{f.name}: no frames in stage group {sg!r}")
+            by_group_means[g].append(f.stage_group_mean[sg])
+            by_group_stds[g].append(f.stage_group_std[sg])
+            by_group_frames[g] += f.stage_group_frames[sg]
+            by_group_eps[g] += 1
+            by_group_area[g].append(f.area_mean[sg])
+            if f.cop_mean[sg] is not None:
+                by_group_cop[g].append(f.cop_mean[sg])
+        if f.stiffness is not None:
+            by_cond_stiff[f.condition].append(f.stiffness)
 
-def _build_tables(episode_dirs: list[pathlib.Path], *, k: int, tau_q: float) -> Tables:
-    frames, episodes = _collect_group_frames(episode_dirs)
-    empty = [GROUP_KEYS[g] for g, v in frames.items() if not v]
+    empty = [contact.GROUP_KEYS[g] for g in range(n_group) if not by_group_means[g]]
     if empty:
-        raise ValueError(f"No frames for group(s) {empty} — cannot build a [12, 12] table.")
+        raise ValueError(f"No training episodes for group(s): {empty}")
 
-    safe = np.zeros((len(GROUP_KEYS), 12), dtype=np.float64)
-    counts = np.zeros(len(GROUP_KEYS), dtype=np.int64)
-    for g in range(len(GROUP_KEYS)):
-        x = np.stack(frames[g])  # [n, 6]
-        safe[g] = np.concatenate([x.mean(0), x.std(0, ddof=0)])
-        counts[g] = len(x)
+    safe = np.zeros((n_group, 2))
+    raw_desc = np.zeros((n_group, len(DESCRIPTOR_FEATURES)))
+    for g, (task, cond, sg) in enumerate(contact.GROUP_KEYS):
+        means = np.asarray(by_group_means[g])
+        # LABEL: episode-level statistics (decided 2026-09-17) -- sigma over episode means.
+        mu = float(means.mean())
+        sigma = max(float(means.std(ddof=0)), contact.GRIP_SIGMA_FLOOR)
+        safe[g] = [mu, sigma]
+        # DESCRIPTOR (analyze_groups.py): sd = mean over episodes of the within-episode frame std;
+        # stiffness = condition-level mean over episodes.
+        desc_sd = max(float(np.mean(by_group_stds[g])), contact.GRIP_SIGMA_FLOOR)
+        cops = by_group_cop[g]
+        stiffs = by_cond_stiff[cond]
+        if not stiffs:
+            raise ValueError(f"No stiffness estimate for condition {cond!r}")
+        raw_desc[g] = [
+            mu,
+            np.log(desc_sd),
+            float(np.mean(by_group_area[g])),
+            float(np.mean(cops)) if cops else 0.0,
+            float(np.mean(stiffs)),
+        ]
 
-    mu, sigma = safe[:, :6], safe[:, 6:]
-    log_sigma = np.log(np.clip(sigma, SIGMA_CLAMP, None))
-    mu_norm, mu_median, mu_iqr = _robust_norm(mu)
-    log_sigma_norm, log_sigma_median, log_sigma_iqr = _robust_norm(log_sigma)
-    descriptors = np.concatenate([mu_norm, log_sigma_norm], axis=1)  # [12, 12]
-
-    centers = _kmeans(descriptors, k, seed=0)
-    dist_sq = ((descriptors[:, None, :] - centers[None, :, :]) ** 2).mean(-1)  # [16, K]
+    desc, median, iqr = _robust_norm(raw_desc)
+    centers = _kmeans(desc, k, seed=0)
+    dist_sq = ((desc[:, None, :] - centers[None, :, :]) ** 2).mean(-1)
     targets = _softmax(-dist_sq / tau_q, axis=-1)
 
     return Tables(
         safe_distribution_all=safe,
-        descriptors=descriptors,
+        descriptors=desc,
+        descriptors_raw=raw_desc,
         prototype_centers=centers,
         soft_prototype_targets_all=targets,
-        normalizer_stats={
-            "mu_median": mu_median,
-            "mu_iqr": mu_iqr,
-            "log_sigma_median": log_sigma_median,
-            "log_sigma_iqr": log_sigma_iqr,
-        },
-        group_frame_counts=counts,
-        group_episode_counts=np.asarray([len(episodes[g]) for g in range(len(GROUP_KEYS))], dtype=np.int64),
+        normalizer_stats={"median": median, "iqr": iqr},
+        group_frame_counts=np.asarray([by_group_frames[g] for g in range(n_group)], dtype=np.int64),
+        group_episode_counts=np.asarray([by_group_eps[g] for g in range(n_group)], dtype=np.int64),
+        episode_means={f.name: dict(f.stage_group_mean) for f in train_feats},
     )
-
-
-def _resolve_episodes(root: pathlib.Path, exclude: set[str]) -> tuple[list[pathlib.Path], list[str]]:
-    all_dirs = sorted(p.parent for p in root.glob("*/observations.jsonl"))
-    if not all_dirs:
-        raise FileNotFoundError(f"No <episode>/observations.jsonl under {root}")
-    unknown = exclude - {d.name for d in all_dirs}
-    if unknown:
-        raise ValueError(f"Excluded episode(s) not found under {root}: {sorted(unknown)}")
-    included = [d for d in all_dirs if d.name not in exclude]
-    return included, [d.name for d in all_dirs if d.name in exclude]
-
-
-def _verify_parity(root: pathlib.Path, *, k: int, tau_q: float, tol: float = 1e-9) -> bool:
-    """Assert the recomputed safe distributions reproduce the SHIPPED per-frame labels (plan §10.10)."""
-    included, excluded = _resolve_episodes(root, set(DEFAULT_EXCLUDE))
-    print(f"[parity] {len(included)} contributing episode(s), {len(excluded)} excluded: {excluded}")
-    tables = _build_tables(included, k=k, tau_q=tau_q)
-
-    # Shipped per-frame gt_safe_distribution, one representative row per group (constant within a group).
-    shipped: dict[int, np.ndarray] = {}
-    for episode_dir in included:
-        for r in _load_records(episode_dir):
-            g, dist = r.get("group_id"), r.get("gt_safe_distribution")
-            if g is None or g < 0 or dist is None:
-                continue
-            dist = np.asarray(dist, dtype=np.float64)
-            if g in shipped and not np.allclose(shipped[g], dist, atol=0, rtol=0):
-                raise ValueError(f"group {g}: shipped gt_safe_distribution is not constant within the group")
-            shipped[g] = dist
-    missing = set(range(len(GROUP_KEYS))) - set(shipped)
-    if missing:
-        raise ValueError(f"No shipped label found for group(s) {sorted(missing)}")
-
-    print(f"\n[parity] recomputed vs shipped gt_safe_distribution, tol={tol:g}")
-    print(f"{'gid':>3}  {'group':<28} {'frames':>6}  {'max |abs err|':>13}")
-    ok = True
-    for g, key in enumerate(GROUP_KEYS):
-        err = float(np.abs(tables.safe_distribution_all[g] - shipped[g]).max())
-        ok &= err <= tol
-        flag = "" if err <= tol else "   <-- FAIL"
-        print(f"{g:>3}  {'/'.join(key[1:]):<28} {tables.group_frame_counts[g]:>6}  {err:>13.3e}{flag}")
-
-    known = {  # Shipped 20260821 table, banana/grasp.
-        "mu": [-1.993, -0.295, 0.975, 8.42, 7.026, 26.706],
-        "sigma": [2.2939, 1.0844, 1.5062, 13.1031, 23.3223, 27.9388],
-    }
-    g = GROUP_INDEX[(TASK, "banana", "grasp")]
-    mu, sigma = tables.safe_distribution_all[g, :6], tables.safe_distribution_all[g, 6:]
-    print(f"\n[parity] known-good check, group {g} (banana, grasp):")
-    print(f"  mu    = {np.round(mu, 3).tolist()}   expected {known['mu']}")
-    print(f"  sigma = {np.round(sigma, 4).tolist()}   expected {known['sigma']}")
-    known_ok = np.allclose(np.round(mu, 3), known["mu"], atol=0) and np.allclose(
-        np.round(sigma, 4), known["sigma"], atol=0
-    )
-    ok &= known_ok
-    print(f"  -> {'MATCH' if known_ok else 'MISMATCH'}")
-
-    # Not part of the gate (K-means cluster ids are only defined up to a permutation), but reported.
-    hard_recomputed = tables.soft_prototype_targets_all.argmax(-1)
-    shipped_targets = {}
-    for episode_dir in included:
-        for r in _load_records(episode_dir):
-            g, y = r.get("group_id"), r.get("soft_prototype_target")
-            if g is not None and g >= 0 and y is not None:
-                shipped_targets[g] = np.asarray(y, dtype=np.float64)
-    if len(shipped_targets) == len(GROUP_KEYS):
-        shipped_hard = np.asarray([shipped_targets[g].argmax() for g in range(len(GROUP_KEYS))])
-        same_partition = _same_partition(hard_recomputed, shipped_hard)
-        print("\n[parity] prototype partition vs shipped (informational, not gated): ", end="")
-        print("IDENTICAL up to cluster relabeling" if same_partition else "DIFFERENT")
-        for cluster in range(k):
-            members = [
-                f"{GROUP_KEYS[g][1]}/{GROUP_KEYS[g][2]}"
-                for g in range(len(GROUP_KEYS))
-                if hard_recomputed[g] == cluster
-            ]
-            print(f"  cluster {cluster}: {members}")
-
-    print(f"\n[parity] {'PASS' if ok else 'FAIL'}")
-    return bool(ok)
-
-
-def _same_partition(a: np.ndarray, b: np.ndarray) -> bool:
-    """True if two label vectors induce the same partition (ignoring cluster id naming)."""
-    mapping: dict[int, int] = {}
-    inverse: dict[int, int] = {}
-    for x, y in zip(a.tolist(), b.tolist(), strict=True):
-        if mapping.setdefault(x, y) != y or inverse.setdefault(y, x) != x:
-            return False
-    return True
 
 
 def _write_label_sidecars(
-    root: pathlib.Path, output_dir: pathlib.Path, tables: Tables, *, stats_episodes: set[str]
+    all_dirs: list[pathlib.Path], output_dir: pathlib.Path, tables: Tables, *, train_names: set[str], deny: set[str]
 ) -> None:
-    """Write per-episode labels.jsonl (never touching observations.jsonl) for the converter's --labels-dir."""
-    n_written = 0
-    for episode_dir in sorted(p.parent for p in root.glob("*/observations.jsonl")):
+    """labels.jsonl per episode (observations.jsonl is never touched). Every episode gets one --
+    train and val alike look up the SAME train-fitted table; the converter's denylist decides
+    what is never trained on."""
+    for episode_dir in all_dirs:
+        records = contact.load_records(episode_dir)
+        condition = contact.episode_condition(records, episode_dir.name)
         rows = []
-        for r in _load_records(episode_dir):
+        for r in records:
             stage = r.get("stage")
-            key = (r.get("group_task") or TASK, r.get("group_fruit"), stage)
-            group_id = GROUP_INDEX.get(key, -1) if stage in STAGES else -1
-            valid = group_id >= 0
-            rows.append(
-                {
-                    "index": r["index"],
-                    "group_id": int(group_id),
-                    "gt_safe_distribution": tables.safe_distribution_all[group_id].tolist() if valid else None,
-                    "soft_prototype_target": tables.soft_prototype_targets_all[group_id].tolist() if valid else None,
-                    "prototype_supervision_valid": bool(valid),
-                }
-            )
+            if stage in contact.CONTACT_STAGES:
+                sg = contact.STAGE_TO_GROUP[stage]
+                g = contact.GROUP_INDEX[(contact.TASK, condition, sg)]
+                rows.append(
+                    {
+                        "index": r["index"],
+                        "group_id": int(g),
+                        "gt_safe_distribution": tables.safe_distribution_all[g].tolist(),
+                        "soft_prototype_target": tables.soft_prototype_targets_all[g].tolist(),
+                        "prototype_supervision_valid": True,
+                    }
+                )
+            else:
+                rows.append(
+                    {
+                        "index": r["index"],
+                        "group_id": -1,
+                        "gt_safe_distribution": None,
+                        "soft_prototype_target": None,
+                        "prototype_supervision_valid": False,
+                    }
+                )
         out = output_dir / episode_dir.name / "labels.jsonl"
         out.parent.mkdir(parents=True, exist_ok=True)
         with out.open("w") as f:
             for row in rows:
                 f.write(json.dumps(row) + "\n")
-        n_written += 1
-        tag = "stats" if episode_dir.name in stats_episodes else "held-out/excluded"
+        tag = "denylist" if episode_dir.name in deny else ("train" if episode_dir.name in train_names else "val")
         print(f"  labels.jsonl  {episode_dir.name}  {len(rows):>5} frames  ({tag})")
-    print(f"Wrote {n_written} labels.jsonl sidecar(s) under {output_dir}")
 
 
-def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--data-dir", default=str(DEFAULT_DATA_DIR), help="Root holding pi0_train_*/ dirs")
-    p.add_argument(
-        "--exclude",
-        action="append",
-        metavar="EP",
-        help="Repeatable; excluded from the statistics. Defaults to the 4 failed episodes in the 20260821 batch.",
-    )
-    p.add_argument(
-        "--val-episodes",
-        action="append",
-        metavar="EP",
-        help="Repeatable; additionally held out of the statistics (train-only rebuild, plan §8.1). "
-        "When given, per-episode labels.jsonl sidecars are written under --output-dir.",
-    )
-    p.add_argument("--tau-q", type=float, default=0.1, help="Softmax temperature for the soft prototype targets")
-    p.add_argument("--k", type=int, default=4, help="Number of K-means prototypes")
-    p.add_argument("--output-dir", default="prototype_metadata", help="Where the tables are written")
-    p.add_argument("--write", action="store_true", help="Actually write the outputs (default is a dry run)")
-    p.add_argument("--verify-parity", action="store_true", help="Run the plan §10.10 regression gate and exit")
-    return p.parse_args()
+def _read_val_file(path: str | None) -> list[str]:
+    if not path:
+        return []
+    lines = pathlib.Path(path).read_text().splitlines()
+    return [ln.strip() for ln in lines if ln.strip() and not ln.strip().startswith("#")]
 
 
 def main(
@@ -355,119 +293,131 @@ def main(
     *,
     exclude: list[str] | None = None,
     val_episodes: list[str] | None = None,
+    val_file: str | None = None,
     tau_q: float = 0.1,
-    k: int = 4,
-    output_dir: str = "prototype_metadata",
+    k: int = 6,
+    output_dir: str = "prototype_metadata_task12_trainonly",
     write: bool = False,
-    verify_parity: bool = False,
 ) -> None:
-    """Rebuild the group safe distributions + prototype tables."""
-    exclude = list(DEFAULT_EXCLUDE) if exclude is None else exclude
-    val_episodes = val_episodes or []
+    exclude = list(contact.DEFAULT_EXCLUDE) if exclude is None else exclude
+    val = sorted(set(val_episodes or []) | set(_read_val_file(val_file)))
     root = pathlib.Path(data_dir)
 
-    if verify_parity:
-        if not _verify_parity(root, k=k, tau_q=tau_q):
-            raise SystemExit("Label parity gate FAILED")
-        return
+    all_dirs = sorted(p.parent for p in root.glob("*/observations.jsonl"))
+    if not all_dirs:
+        raise FileNotFoundError(f"No <episode>/observations.jsonl under {root}")
+    names = {d.name for d in all_dirs}
+    for label, subset in (("denylist", exclude), ("val", val)):
+        unknown = set(subset) - names
+        if unknown:
+            raise ValueError(f"{label} episode(s) not found under {root}: {sorted(unknown)}")
+    overlap = set(exclude) & set(val)
+    if overlap:
+        raise ValueError(f"Episode(s) in both denylist and val: {sorted(overlap)}")
 
-    stats_exclude = set(exclude) | set(val_episodes)
-    included, excluded_names = _resolve_episodes(root, stats_exclude)
-    print(f"Data root:        {root}")
-    print(f"Contributing:     {len(included)} episode(s)")
-    print(f"Excluded (denylist + val): {len(excluded_names)} -> {excluded_names}")
-    print(f"Hyperparams:      K={k}  tau_q={tau_q}  stages={list(STAGES)}  N_group={len(GROUP_KEYS)}")
+    deny = set(exclude)
+    train_dirs = [d for d in all_dirs if d.name not in deny and d.name not in set(val)]
+    print(f"Data root:   {root}")
+    print(f"Episodes:    {len(all_dirs)} total = {len(train_dirs)} train + {len(val)} val + {len(deny)} denylisted")
+    print(f"Hyperparams: K={k}  tau_q={tau_q}  sigma_floor={contact.GRIP_SIGMA_FLOOR}  N_group={len(contact.GROUP_KEYS)}\n")
 
-    tables = _build_tables(included, k=k, tau_q=tau_q)
+    train_feats = [_episode_features(d) for d in train_dirs]
+    tables = _build_tables(train_feats, k=k, tau_q=tau_q)
 
-    print(f"\n{'gid':>3}  {'group':<20} {'eps':>3} {'frames':>6}  mu[:3]                     sigma[:3]")
-    for g, key in enumerate(GROUP_KEYS):
-        mu, sigma = tables.safe_distribution_all[g, :3], tables.safe_distribution_all[g, 6:9]
+    print(f"{'gid':>3}  {'group':<24} {'eps':>3} {'frames':>6} {'mu':>8} {'sigma':>8}   raw desc [area cop stiff]")
+    for g, (task, cond, sg) in enumerate(contact.GROUP_KEYS):
+        mu, sigma = tables.safe_distribution_all[g]
+        a, c_, s_ = tables.descriptors_raw[g, 2:]
         print(
-            f"{g:>3}  {'/'.join(key[1:]):<20} {tables.group_episode_counts[g]:>3} "
-            f"{tables.group_frame_counts[g]:>6}  {np.round(mu, 3).tolist()!s:<26} {np.round(sigma, 3).tolist()}"
+            f"{g:>3}  {cond + '/' + sg:<24} {tables.group_episode_counts[g]:>3} "
+            f"{tables.group_frame_counts[g]:>6} {mu:>8.4f} {sigma:>8.4f}   [{a:6.1f} {c_:5.2f} {s_:7.1f}]"
         )
     hard = tables.soft_prototype_targets_all.argmax(-1)
     print("\nPrototype membership:")
     for cluster in range(k):
-        members = [f"{GROUP_KEYS[g][1]}/{GROUP_KEYS[g][2]}" for g in range(len(GROUP_KEYS)) if hard[g] == cluster]
+        members = [
+            f"{contact.GROUP_KEYS[g][1]}/{contact.GROUP_KEYS[g][2]}"
+            for g in range(len(contact.GROUP_KEYS))
+            if hard[g] == cluster
+        ]
         print(f"  cluster {cluster}: {members}")
 
+    # The model-config normalizer for the 1-D label (contract §B): mean of the group mus, median of
+    # the group sigmas -- same construction as the legacy 6-D one.
+    label_mean = float(tables.safe_distribution_all[:, 0].mean())
+    label_scale = float(np.median(tables.safe_distribution_all[:, 1]))
+    print(f"\nphy_label_mean  = ({label_mean:.6f},)")
+    print(f"phy_label_scale = ({label_scale:.6f},)")
+
     if not write:
-        print(f"\nDry run — nothing written. Re-run with --write to populate {output_dir}.")
+        print(f"\nDry run -- nothing written. Re-run with --write to populate {output_dir}.")
         return
 
     out = pathlib.Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
-    np.save(out / "safe_distribution_all.npy", tables.safe_distribution_all.astype(np.float64))
-    np.save(out / "prototype_centers.npy", tables.prototype_centers.astype(np.float64))
-    np.save(out / "soft_prototype_targets_all.npy", tables.soft_prototype_targets_all.astype(np.float64))
-    np.save(out / "descriptors.npy", tables.descriptors.astype(np.float64))
+    np.save(out / "safe_distribution_all.npy", tables.safe_distribution_all)
+    np.save(out / "prototype_centers.npy", tables.prototype_centers)
+    np.save(out / "soft_prototype_targets_all.npy", tables.soft_prototype_targets_all)
+    np.save(out / "descriptors.npy", tables.descriptors)
+    np.save(out / "descriptors_raw.npy", tables.descriptors_raw)
     np.savez(out / "normalizer_stats.npz", **tables.normalizer_stats)
 
     metadata = {
-        "task": TASK,
-        "fruits": list(FRUITS),
-        "stages": list(STAGES),
-        "n_group": len(GROUP_KEYS),
-        "group_layout": "group_id = fruit_index * len(stages) + stage_index",
+        "contract": "todo_training_contract.md 2026-09-16 (Plan B): 1-D grip target, 16 groups",
+        "task": contact.TASK,
+        "conditions": list(contact.CONDITIONS),
+        "stage_groups": list(contact.STAGE_GROUPS),
+        "stage_to_group": contact.STAGE_TO_GROUP,
+        "n_group": len(contact.GROUP_KEYS),
+        "group_layout": "group_id = condition_index * 2 + stage_group_index",
+        "signal": contact.CONTACT_INPUT_SIGNAL,
+        "grip_definition": "0.5 * (sum(left_data_zeroed) + sum(right_data_zeroed)); per-episode mean-zeroed",
+        "sigma_estimator": "population std ddof=0 over EPISODE stage-group means; floor 0.0051",
+        "descriptor_features": list(DESCRIPTOR_FEATURES),
+        "descriptor_note": "area/cop/stiffness formulas pending reconciliation with analyze_groups.py",
+        "gt_safe_distribution_layout": ["mu_grip", "sigma_grip"],
         "groups": [
             {
                 "group_id": g,
-                "task": key[0],
-                "fruit": key[1],
-                "stage": key[2],
+                "condition": key[1],
+                "stage_group": key[2],
+                "mu": float(tables.safe_distribution_all[g, 0]),
+                "sigma": float(tables.safe_distribution_all[g, 1]),
                 "n_frames": int(tables.group_frame_counts[g]),
                 "n_episodes": int(tables.group_episode_counts[g]),
                 "prototype": int(hard[g]),
             }
-            for g, key in enumerate(GROUP_KEYS)
+            for g, key in enumerate(contact.GROUP_KEYS)
         ],
-        "included_episodes": [d.name for d in included],
-        "excluded_episodes": excluded_names,
-        "denylist_episodes": sorted(set(exclude)),
-        "val_episodes": sorted(set(val_episodes)),
-        "hyperparams": {
-            "k": k,
-            "tau_q": tau_q,
-            "kmeans_seed": 0,
-            "sigma_clamp": SIGMA_CLAMP,
-            "iqr_eps": IQR_EPS,
-            "sigma_is_std_ddof": 0,
-        },
-        "signal": "tactile_estimated_wrench_two_finger_mean",
-        "gt_safe_distribution_layout": [f"mu_{d}" for d in WRENCH_LAYOUT] + [f"sigma_{d}" for d in WRENCH_LAYOUT],
+        "train_episodes": [d.name for d in train_dirs],
+        "val_episodes": val,
+        "denylist_episodes": sorted(deny),
+        "episode_stage_group_means": tables.episode_means,
+        "phy_label_mean": [label_mean],
+        "phy_label_scale": [label_scale],
+        "hyperparams": {"k": k, "tau_q": tau_q, "kmeans_seed": 0, "kmeans_restarts": 50,
+                        "sigma_floor": contact.GRIP_SIGMA_FLOOR, "iqr_eps": IQR_EPS},
     }
     (out / "group_metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
-    (out / "prototype_tables.json").write_text(
-        json.dumps(
-            {
-                "safe_distribution_all": tables.safe_distribution_all.tolist(),
-                "prototype_centers": tables.prototype_centers.tolist(),
-                "soft_prototype_targets_all": tables.soft_prototype_targets_all.tolist(),
-                "descriptors": tables.descriptors.tolist(),
-                "normalizer_stats": {k_: v.tolist() for k_, v in tables.normalizer_stats.items()},
-            },
-            indent=2,
-        )
-        + "\n"
-    )
-    print(f"\nWrote tables to {out}")
+    print(f"\nWrote tables to {out}\n\nSidecars:")
+    _write_label_sidecars(all_dirs, out, tables, train_names={d.name for d in train_dirs}, deny=deny)
 
-    if val_episodes:
-        print("\nval_episodes given -> writing per-episode label sidecars (shipped observations.jsonl untouched):")
-        _write_label_sidecars(root, out, tables, stats_episodes={d.name for d in included})
+
+def _parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--data-dir", default=str(DEFAULT_DATA_DIR))
+    p.add_argument("--exclude", action="append", metavar="EP",
+                   help="Repeatable denylist; defaults to the 6-episode contract denylist")
+    p.add_argument("--val-episodes", action="append", metavar="EP", help="Repeatable; held out of all statistics")
+    p.add_argument("--val-file", default=None, help="File with one held-out episode name per line")
+    p.add_argument("--tau-q", type=float, default=0.1)
+    p.add_argument("--k", type=int, default=6)
+    p.add_argument("--output-dir", default="prototype_metadata_task12_trainonly")
+    p.add_argument("--write", action="store_true")
+    return p.parse_args()
 
 
 if __name__ == "__main__":
-    args = _parse_args()
-    main(
-        data_dir=args.data_dir,
-        exclude=args.exclude,
-        val_episodes=args.val_episodes,
-        tau_q=args.tau_q,
-        k=args.k,
-        output_dir=args.output_dir,
-        write=args.write,
-        verify_parity=args.verify_parity,
-    )
+    a = _parse_args()
+    main(data_dir=a.data_dir, exclude=a.exclude, val_episodes=a.val_episodes, val_file=a.val_file,
+         tau_q=a.tau_q, k=a.k, output_dir=a.output_dir, write=a.write)

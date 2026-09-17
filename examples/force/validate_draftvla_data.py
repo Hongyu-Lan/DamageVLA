@@ -1,18 +1,22 @@
-"""Validate the uploaded DamageVLA JSONL/image dataset before conversion or training."""
+"""Validate the merged DamageVLA task1+2 dataset (+ label sidecars) before conversion or training.
+
+2026-09-16 contract: checks the RAW per-frame structure the converter consumes (images, stages,
+tactile `_data` voltages, pre-zeroed flange wrench) and, when --labels-dir is given, the sidecar
+labels written by build_safe_group_prototypes.py (gt_safe_distribution[2], soft target[K=6]).
+The retired in-jsonl 12-D wrench labels are deliberately NOT validated -- nothing reads them now.
+"""
 
 import argparse
 import collections
 import json
-import math
 import pathlib
+import sys
 
-DEFAULT_DATA_DIR = pathlib.Path(__file__).resolve().parents[3] / "DamageVLA_training_post_process_20260821"
-EXPECTED_EXCLUDED = {
-    "pi0_train_20260821_152043",
-    "pi0_train_20260821_152329",
-    "pi0_train_20260821_155925",
-    "pi0_train_20260821_161238",
-}
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import draftvla_contact as contact  # noqa: E402
+
+DEFAULT_DATA_DIR = pathlib.Path(__file__).resolve().parents[3] / "DamageVLA_training_post_process_20260916"
+K_PROTOTYPES = 6
 REQUIRED = {
     "index",
     "prompt",
@@ -20,132 +24,135 @@ REQUIRED = {
     "wrist_image_path",
     "tcp_pose",
     "gripper_width",
-    "tactile_estimated_wrenches",
+    "tactile_voltage_signals",
+    "force_torque_zeroed",
     "action_7",
     "stage",
-    "prototype_supervision_valid",
 }
 STAGES = {"prepare", "grasp", "lift", "translate", "place", "reset"}
 
 
 def main(
     data_dir: pathlib.Path,
-    expected_episodes: int = 26,
-    expected_frames: int = 20_344,
-    expected_excluded: set[str] | None = None,
+    labels_dir: pathlib.Path | None,
+    expected_episodes: int = 83,
+    expected_frames: int = 47_591,
 ) -> None:
-    expected_excluded = EXPECTED_EXCLUDED if expected_excluded is None else expected_excluded
+    expected_excluded = set(contact.DEFAULT_EXCLUDE)
     episode_dirs = sorted(path.parent for path in data_dir.glob("pi0_train_*/observations.jsonl"))
     errors: list[str] = []
     if len(episode_dirs) != expected_episodes:
         errors.append(f"expected {expected_episodes} episodes, found {len(episode_dirs)}")
 
-    names = {path.name for path in episode_dirs}
-    if missing := expected_excluded - names:
-        errors.append(f"expected failed episodes are missing: {sorted(missing)}")
-
     total_frames = 0
-    valid_frames = 0
     excluded_frames = 0
-    excluded_valid_frames = 0
-    fruits: collections.Counter[str] = collections.Counter()
-    stage_counts: collections.Counter[str] = collections.Counter()
+    valid_frames = 0
+    conditions: collections.Counter = collections.Counter()
+    stage_counts: collections.Counter = collections.Counter()
 
     for episode_dir in episode_dirs:
+        records = contact.load_records(episode_dir)
+        condition = contact.episode_condition(records, episode_dir.name)
+        try:
+            zeroing = contact.tactile_zeroing(records, episode_dir.name)
+        except ValueError as exc:
+            errors.append(str(exc))
+            zeroing = None
+
+        sidecar = None
+        if labels_dir is not None:
+            sidecar_path = labels_dir / episode_dir.name / "labels.jsonl"
+            if not sidecar_path.is_file():
+                errors.append(f"{episode_dir.name}: missing sidecar {sidecar_path}")
+            else:
+                with sidecar_path.open() as f:
+                    sidecar = {row["index"]: row for row in (json.loads(ln) for ln in f if ln.strip())}
+
         seen_indices: set[int] = set()
-        with (episode_dir / "observations.jsonl").open() as stream:
-            for line_number, line in enumerate(stream, 1):
-                if not line.strip():
-                    continue
-                total_frames += 1
-                row = json.loads(line)
-                prefix = f"{episode_dir.name}:{line_number}"
+        for row in records:
+            prefix = f"{episode_dir.name}[{row.get('index', '?')}]"
+            seen_indices.add(row["index"])
+            missing = REQUIRED - row.keys()
+            if missing:
+                errors.append(f"{prefix}: missing keys {sorted(missing)}")
+                continue
+            if row["stage"] not in STAGES:
+                errors.append(f"{prefix}: invalid stage {row['stage']!r}")
+            stage_counts[row["stage"]] += 1
 
-                if missing := REQUIRED - row.keys():
-                    errors.append(f"{prefix}: missing fields {sorted(missing)}")
-                    continue
-                index = row["index"]
-                if index in seen_indices:
-                    errors.append(f"{prefix}: duplicate frame index {index}")
-                seen_indices.add(index)
+            for key in ("image_path", "wrist_image_path"):
+                if not (episode_dir / row[key]).is_file():
+                    errors.append(f"{prefix}: missing {key} {row[key]!r}")
+            if row.get("image_shape") != [224, 224, 3] or row.get("wrist_image_shape") != [224, 224, 3]:
+                errors.append(f"{prefix}: image metadata is not 224x224x3")
 
-                if len(row["action_7"]) != 7:
-                    errors.append(f"{prefix}: expected action[7]")
-                tactile = row["tactile_estimated_wrenches"]
-                if not isinstance(tactile, dict):
-                    errors.append(f"{prefix}: tactile_estimated_wrenches must be a mapping")
-                else:
-                    for side in ("left_estimated", "right_estimated"):
-                        values = tactile.get(side)
-                        if not isinstance(values, list) or len(values) != 6:
-                            errors.append(f"{prefix}: expected tactile {side}[6]")
-                        elif any(not isinstance(value, int | float) or not math.isfinite(value) for value in values):
-                            errors.append(f"{prefix}: tactile {side} contains a non-finite/non-numeric value")
-                if row["stage"] not in STAGES:
-                    errors.append(f"{prefix}: invalid stage {row['stage']!r}")
-                stage_counts[row["stage"]] += 1
+            if zeroing is not None:
+                try:
+                    contact.contact_input_57(row, zeroing, episode_dir.name)
+                except ValueError as exc:
+                    errors.append(str(exc))
 
-                for key in ("image_path", "wrist_image_path"):
-                    image_path = episode_dir / row[key]
-                    if not image_path.is_file():
-                        errors.append(f"{prefix}: missing {key} {row[key]!r}")
-                if row.get("image_shape") != [224, 224, 3] or row.get("wrist_image_shape") != [224, 224, 3]:
-                    errors.append(f"{prefix}: image metadata is not 224x224x3")
-
-                is_valid = bool(row["prototype_supervision_valid"])
-                if is_valid:
+            if sidecar is not None:
+                srow = sidecar.get(row["index"])
+                if srow is None:
+                    errors.append(f"{prefix}: no sidecar row")
+                elif srow["prototype_supervision_valid"]:
                     valid_frames += 1
-                    safe = row.get("gt_safe_distribution") or []
-                    target = row.get("soft_prototype_target") or []
-                    if len(safe) != 12 or len(target) != 4:
-                        errors.append(f"{prefix}: valid supervision must have safe[12] and target[4]")
+                    safe = srow.get("gt_safe_distribution") or []
+                    target = srow.get("soft_prototype_target") or []
+                    if len(safe) != 2 or len(target) != K_PROTOTYPES:
+                        errors.append(f"{prefix}: valid supervision must have safe[2] and target[{K_PROTOTYPES}]")
+                    elif safe[1] < contact.GRIP_SIGMA_FLOOR - 1e-12:
+                        errors.append(f"{prefix}: sigma {safe[1]} below floor {contact.GRIP_SIGMA_FLOOR}")
                     elif abs(sum(target) - 1.0) > 1e-5:
                         errors.append(f"{prefix}: soft prototype probabilities do not sum to one")
-                    if fruit := row.get("group_fruit"):
-                        fruits[fruit] += 1
-                if episode_dir.name in expected_excluded:
-                    excluded_frames += 1
-                    excluded_valid_frames += int(is_valid)
+                    elif (row["stage"] not in contact.CONTACT_STAGES) or srow["group_id"] != contact.GROUP_INDEX[
+                        (contact.TASK, condition, contact.STAGE_TO_GROUP[row["stage"]])
+                    ]:
+                        errors.append(f"{prefix}: group_id {srow['group_id']} inconsistent with stage/condition")
 
-                if len(errors) >= 50:
-                    raise ValueError("Dataset validation failed (first 50 errors):\n  " + "\n  ".join(errors))
+            if len(errors) >= 50:
+                raise ValueError("Dataset validation failed (first 50 errors):\n  " + "\n  ".join(errors))
 
-        if seen_indices and seen_indices != set(range(len(seen_indices))):
+        conditions[condition] += 1
+        total_frames += len(records)
+        if episode_dir.name in expected_excluded:
+            excluded_frames += len(records)
+        if seen_indices != set(range(len(seen_indices))):
             errors.append(f"{episode_dir.name}: frame indices are not contiguous from zero")
 
     if total_frames != expected_frames:
         errors.append(f"expected {expected_frames} frames, found {total_frames}")
+    unknown_excluded = expected_excluded - {d.name for d in episode_dirs}
+    if unknown_excluded:
+        errors.append(f"denylisted episode(s) not on disk: {sorted(unknown_excluded)}")
     if errors:
         raise ValueError("Dataset validation failed:\n  " + "\n  ".join(errors))
 
     kept_frames = total_frames - excluded_frames
-    kept_valid = valid_frames - excluded_valid_frames
-    print("DamageVLA dataset validation: PASS")
+    print("DamageVLA task1+2 dataset validation: PASS")
     print(f"  source:                  {data_dir.resolve()}")
+    print(f"  labels:                  {labels_dir.resolve() if labels_dir else '(not checked)'}")
     print(f"  episodes / frames:       {len(episode_dirs)} / {total_frames}")
-    print(f"  excluded failed data:    {len(expected_excluded)} episodes / {excluded_frames} frames")
+    print(f"  denylisted:              {len(expected_excluded)} episodes / {excluded_frames} frames")
     print(f"  conversion keeps:        {len(episode_dirs) - len(expected_excluded)} episodes / {kept_frames} frames")
-    print(f"  supervised kept frames:  {kept_valid} ({kept_valid / kept_frames:.1%})")
-    print("  force input signal:       [mean(left, right), signed half-difference(left, right)] [12]")
-    print(f"  valid frames by fruit:   {dict(sorted(fruits.items()))}")
+    if labels_dir is not None:
+        print(f"  supervised frames:       {valid_frames} (over ALL episodes incl. denylist)")
+    print(f"  contact input:            {contact.CONTACT_INPUT_SIGNAL} [{contact.CONTACT_INPUT_DIM}]")
+    print(f"  episodes by condition:   {dict(sorted(conditions.items()))}")
     print(f"  frames by stage:         {dict(stage_counts)}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data-dir", type=pathlib.Path, default=DEFAULT_DATA_DIR)
-    parser.add_argument("--expected-episodes", type=int, default=26)
-    parser.add_argument("--expected-frames", type=int, default=20_344)
-    parser.add_argument(
-        "--exclude",
-        action="append",
-        dest="expected_excluded",
-        help="Expected failed episode; repeat for each episode. Defaults to the 20260821 denylist.",
-    )
+    parser.add_argument("--data-dir", default=str(DEFAULT_DATA_DIR))
+    parser.add_argument("--labels-dir", default=None, help="Sidecar dir from build_safe_group_prototypes.py")
+    parser.add_argument("--expected-episodes", type=int, default=83)
+    parser.add_argument("--expected-frames", type=int, default=47_591)
     args = parser.parse_args()
     main(
-        data_dir=args.data_dir,
+        pathlib.Path(args.data_dir),
+        pathlib.Path(args.labels_dir) if args.labels_dir else None,
         expected_episodes=args.expected_episodes,
         expected_frames=args.expected_frames,
-        expected_excluded=set(args.expected_excluded) if args.expected_excluded is not None else None,
     )

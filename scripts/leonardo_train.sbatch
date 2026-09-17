@@ -31,18 +31,19 @@ fi
 # shellcheck disable=SC1090
 source "$CONFIG_FILE"
 
-RAW_DATA_DIR="${RAW_DATA_DIR:-$DRAFTVLA_ROOT/../DamageVLA_training_post_process_20260821}"
-DATASET_REPO_ID="${DATASET_REPO_ID:-draftvla/fruits_tactile}"
-EXPECTED_RAW_EPISODES="${EXPECTED_RAW_EPISODES:-26}"
-EXPECTED_RAW_FRAMES="${EXPECTED_RAW_FRAMES:-20344}"
-EXPECTED_LEROBOT_EPISODES="${EXPECTED_LEROBOT_EPISODES:-22}"
-EXPECTED_LEROBOT_FRAMES="${EXPECTED_LEROBOT_FRAMES:-16904}"
-EXCLUDE_EPISODES="${EXCLUDE_EPISODES:-pi0_train_20260821_152043 pi0_train_20260821_152329 pi0_train_20260821_155925 pi0_train_20260821_161238}"
-
-EXCLUDE_ARGS=()
-for episode in $EXCLUDE_EPISODES; do
-  EXCLUDE_ARGS+=(--exclude "$episode")
-done
+# 2026-09-16 contract defaults (Plan B). All overridable from the conf file.
+RAW_DATA_DIR="${RAW_DATA_DIR:-$DRAFTVLA_ROOT/../DamageVLA_training_post_process_20260916}"
+LABELS_DIR="${LABELS_DIR:-prototype_metadata_task12_trainonly}"
+TRAIN_EPISODES_FILE="${TRAIN_EPISODES_FILE:-examples/force/train_episodes_20260917.txt}"
+VAL_EPISODES_FILE="${VAL_EPISODES_FILE:-examples/force/val_episodes_20260917.txt}"
+DATASET_REPO_ID="${DATASET_REPO_ID:-draftvla/task12_tactile_train}"
+VAL_DATASET_REPO_ID="${VAL_DATASET_REPO_ID:-draftvla/task12_tactile_val}"
+EXPECTED_RAW_EPISODES="${EXPECTED_RAW_EPISODES:-83}"
+EXPECTED_RAW_FRAMES="${EXPECTED_RAW_FRAMES:-47591}"
+EXPECTED_LEROBOT_EPISODES="${EXPECTED_LEROBOT_EPISODES:-62}"
+EXPECTED_LEROBOT_FRAMES="${EXPECTED_LEROBOT_FRAMES:-35549}"
+EXPECTED_VAL_EPISODES="${EXPECTED_VAL_EPISODES:-15}"
+EXPECTED_VAL_FRAMES="${EXPECTED_VAL_FRAMES:-8596}"
 
 if [ ! -x .venv/bin/python ] || ! command -v uv >/dev/null 2>&1; then
   echo "ERROR: dependency environment is missing. Run 'bash setup_leonardo.sh' on a login node first."
@@ -58,29 +59,32 @@ echo "HF_LEROBOT_HOME=$HF_LEROBOT_HOME"
 nvidia-smi
 uv run --frozen python -c 'import jax; print("JAX devices:", jax.devices())'
 
-echo "==== [data 1/2] validating raw JSONL and images ===="
+echo "==== [data 1/2] validating raw JSONL, images, and label sidecars ===="
 uv run --frozen python examples/force/validate_draftvla_data.py \
   --data-dir "$RAW_DATA_DIR" \
+  --labels-dir "$LABELS_DIR" \
   --expected-episodes "$EXPECTED_RAW_EPISODES" \
-  --expected-frames "$EXPECTED_RAW_FRAMES" \
-  "${EXCLUDE_ARGS[@]}"
+  --expected-frames "$EXPECTED_RAW_FRAMES"
 
-LEROBOT_VALIDATE=(
-  uv run --frozen python examples/force/validate_lerobot_dataset.py
-  --repo-id "$DATASET_REPO_ID"
-  --expected-episodes "$EXPECTED_LEROBOT_EPISODES"
-  --expected-frames "$EXPECTED_LEROBOT_FRAMES"
-)
-if [ "${FORCE_RECONVERT:-0}" = "1" ] || ! "${LEROBOT_VALIDATE[@]}"; then
-  echo "==== [data 2/2] converting $EXPECTED_LEROBOT_EPISODES episodes to LeRobot ===="
-  uv run --frozen python examples/force/convert_draftvla_data_to_lerobot.py \
-    --data-dir "$RAW_DATA_DIR" \
-    --repo-id "$DATASET_REPO_ID" \
-    "${EXCLUDE_ARGS[@]}"
-  "${LEROBOT_VALIDATE[@]}"
-else
-  echo "==== [data 2/2] reusing the validated converted dataset ===="
-fi
+convert_repo() {  # repo_id episodes_file expected_episodes expected_frames
+  local validate=(
+    uv run --frozen python examples/force/validate_lerobot_dataset.py
+    --repo-id "$1" --expected-episodes "$3" --expected-frames "$4"
+  )
+  if [ "${FORCE_RECONVERT:-0}" = "1" ] || ! "${validate[@]}"; then
+    echo "==== [data 2/2] converting $3 episodes to LeRobot ($1) ===="
+    uv run --frozen python examples/force/convert_draftvla_data_to_lerobot.py \
+      --data-dir "$RAW_DATA_DIR" \
+      --labels-dir "$LABELS_DIR" \
+      --episodes-file "$2" \
+      --repo-id "$1"
+    "${validate[@]}"
+  else
+    echo "==== [data 2/2] reusing the validated converted dataset ($1) ===="
+  fi
+}
+convert_repo "$DATASET_REPO_ID" "$TRAIN_EPISODES_FILE" "$EXPECTED_LEROBOT_EPISODES" "$EXPECTED_LEROBOT_FRAMES"
+convert_repo "$VAL_DATASET_REPO_ID" "$VAL_EPISODES_FILE" "$EXPECTED_VAL_EPISODES" "$EXPECTED_VAL_FRAMES"
 
 if [ "${PREPARE_ONLY:-0}" = "1" ]; then
   echo "PREPARE_ONLY=1: conversion complete; training skipped."

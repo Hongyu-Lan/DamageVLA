@@ -27,3 +27,6 @@ data/
 # --- 系统 / 编辑器 ---
 .DS_Store
 *.swp
+
+# 后处理数据产物（657MB，留在本地不进仓库）
+DamageVLA_training_post_process_*/

@@ -2,13 +2,6 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 当前训练契约（先读这个）
-
-2026-09-16 起，训练数据契约与待办以 `outlines/todo_training_contract.md` 为准；
-配套文档：`outlines/data_analysis_20260916.md`（实测分析）、`outlines/collection_protocol.md`（采集与标定）、
-`postprocess/README.md`（后处理流水线要改的地方）。
-本文件其余部分描述的是 20260905_20260911 那次训练时的状态，输入/目标维度已经变了。
-
 ## Overview
 
 openpi holds open-source robotics vision-language-action (VLA) models from Physical Intelligence: **π₀** (flow-matching VLA), **π₀-FAST** (autoregressive VLA using the FAST action tokenizer), and **π₀.₅** (improved π₀ with knowledge insulation; only the flow-matching head is supported here). The repo provides base checkpoints, fine-tuning, and inference. Models have both a **JAX** (primary, Flax NNX) and a **PyTorch** implementation.
