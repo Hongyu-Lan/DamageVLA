@@ -10,10 +10,16 @@ Then run this client:
 
   uv run examples/force/main.py
 
-By default it sends the current DraftVLA contract, a 57-D ``observation/contact_input`` containing
-``[two-finger mean(6), signed half-difference(6)]``. Pass
-``--no-draftvla`` for legacy ``pi0_force_*`` checkpoints that expect flange
-``observation/force_torque``. On a real robot, replace ``_random_observation`` with live sensor reads.
+By default it sends the current DraftVLA contract, a 57-D ``observation/contact_input`` =
+``[left_data_zeroed(25), right_data_zeroed(25), gripper_width(1), force_torque_zeroed(6)]`` (see
+``draftvla_contact.py``). Pass ``--no-draftvla`` for legacy ``pi0_force_*`` checkpoints that expect
+the flange ``observation/force_torque`` (6). On a real robot, replace ``_random_observation`` with live
+sensor reads.
+
+A DraftVLA server answers with ``actions`` (8, 7) plus the physical-branch readouts of the same
+forward pass: ``safe_force_distribution`` [mu_hat, sigma_hat], ``prototype_probs`` [K=6] and
+``z_phy`` [128]. They are diagnostics to log per frame (notes/eval_logging_spec.md §4), never control
+inputs; ForceVLA / no-force checkpoints return ``actions`` only.
 """
 
 import dataclasses
@@ -65,6 +71,10 @@ def main(args: Args) -> None:
         action = policy.infer(_random_observation(args.prompt, draftvla=args.draftvla))
         actions = np.asarray(action["actions"])
         logger.info(f"[step {step}] action chunk shape: {actions.shape}")  # expected (action_horizon, 7)
+        # Present on a DraftVLA (physical branch) server only; absent on ForceVLA / no-force arms.
+        readouts = {k: np.asarray(action[k]).shape for k in ("safe_force_distribution", "prototype_probs", "z_phy") if k in action}
+        if readouts:
+            logger.info(f"[step {step}] physical readouts: {readouts}")  # expected (2,), (6,), (128,)
 
 
 if __name__ == "__main__":

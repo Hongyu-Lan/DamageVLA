@@ -59,9 +59,19 @@ class Policy(BasePolicy):
             self._model = self._model.to(pytorch_device)
             self._model.eval()
             self._sample_actions = model.sample_actions
+            self._returns_physical = False
         else:
-            # JAX model setup
-            self._sample_actions = nnx_utils.module_jit(model.sample_actions)
+            # JAX model setup. A model with the physical branch on (DraftVLA) is sampled through
+            # `sample_actions_with_physical`, which returns the branch's readouts (mu/sigma, prototype
+            # probabilities, z_phy) from the same forward pass; they ride to the client as extra
+            # output keys so evaluation rollouts can log them (notes/eval_logging_spec.md §4).
+            sample_fn = model.sample_actions
+            self._returns_physical = bool(getattr(model, "phy_enabled", False)) and hasattr(
+                model, "sample_actions_with_physical"
+            )
+            if self._returns_physical:
+                sample_fn = model.sample_actions_with_physical
+            self._sample_actions = nnx_utils.module_jit(sample_fn)
             self._rng = rng or jax.random.key(0)
 
     @override
@@ -89,9 +99,14 @@ class Policy(BasePolicy):
 
         observation = _model.Observation.from_dict(inputs)
         start_time = time.monotonic()
+        sampled = self._sample_actions(sample_rng_or_pytorch_device, observation, **sample_kwargs)
+        actions, physical = sampled if self._returns_physical else (sampled, {})
         outputs = {
             "state": inputs["state"],
-            "actions": self._sample_actions(sample_rng_or_pytorch_device, observation, **sample_kwargs),
+            "actions": actions,
+            # Physical-branch readouts (mu_pred, sigma_pred, proto_probs, z_phy) when the model has
+            # them. No norm stats carry these keys, so the strict Unnormalize below passes them through.
+            **physical,
         }
         # Carry input-only modalities (e.g. force) through to the output, mirroring "state" above, so
         # the strict output Unnormalize -- whose norm stats cover every normalized key -- finds them.

@@ -32,6 +32,10 @@ case "${MODE:-}" in
   task12)            CONFIG=pi0_draftvla_task12 ;;
   task12_forcevla)   CONFIG=pi0_draftvla_task12_forcevla ;;
   task12_noforce)    CONFIG=pi0_draftvla_task12_noforce ;;
+  # v2 (2026-09-22): same three arms on the v2 dataset (gripper button action + action_loss_weight).
+  task12_v2)           CONFIG=pi0_draftvla_task12_v2 ;;
+  task12_v2_forcevla)  CONFIG=pi0_draftvla_task12_v2_forcevla ;;
+  task12_v2_noforce)   CONFIG=pi0_draftvla_task12_v2_noforce ;;
   draftvla)          CONFIG=pi0_draftvla ;;
   draftvla_20260905) CONFIG=pi0_draftvla_20260905 ;;
   draftvla_20260905_20260911) CONFIG=pi0_draftvla_20260905_20260911 ;;
@@ -40,7 +44,7 @@ case "${MODE:-}" in
   fvlmoe)            CONFIG=pi0_force_fvlmoe ;;
   token)             CONFIG=pi0_force_token ;;
   vanilla)           CONFIG=pi0_force_baseline ;;
-  *) echo "ERROR: MODE must be one of: task12 | task12_forcevla | task12_noforce | draftvla | draftvla_20260905 | draftvla_20260905_20260911 | draftvla_forcevla | draftvla_noforce | fvlmoe | token | vanilla (got '${MODE:-}')."; exit 1 ;;
+  *) echo "ERROR: MODE must be one of: task12 | task12_forcevla | task12_noforce | task12_v2 | task12_v2_forcevla | task12_v2_noforce | draftvla | draftvla_20260905 | draftvla_20260905_20260911 | draftvla_forcevla | draftvla_noforce | fvlmoe | token | vanilla (got '${MODE:-}')."; exit 1 ;;
 esac
 
 UV="${UV:-uv}"
@@ -115,7 +119,7 @@ ARGS=(
 )
 # FVLMoE model hyperparameters (the vanilla / no-force configs have no FVLMoE).
 case "$MODE" in
-  fvlmoe|draftvla|draftvla_20260905|draftvla_20260905_20260911|draftvla_forcevla|task12|task12_forcevla)
+  fvlmoe|draftvla|draftvla_20260905|draftvla_20260905_20260911|draftvla_forcevla|task12|task12_forcevla|task12_v2|task12_v2_forcevla)
     ARGS+=(
       --model.fvlmoe-num-experts="$NUM_EXPERTS"
       --model.fvlmoe-num-heads="$NUM_HEADS"
@@ -124,7 +128,7 @@ case "$MODE" in
     ;;
 esac
 # Physical Interaction Token hyperparameters (only pi0_draftvla has these fields).
-if [ "$MODE" = "draftvla" ] || [ "$MODE" = "draftvla_20260905" ] || [ "$MODE" = "draftvla_20260905_20260911" ] || [ "$MODE" = "task12" ]; then
+if [ "$MODE" = "draftvla" ] || [ "$MODE" = "draftvla_20260905" ] || [ "$MODE" = "draftvla_20260905_20260911" ] || [ "$MODE" = "task12" ] || [ "$MODE" = "task12_v2" ]; then
   ARGS+=(
     --model.phy-dim="$PHY_DIM"
     --model.phy-num-prototypes="$NUM_PROTOTYPES"
@@ -134,8 +138,8 @@ if [ "$MODE" = "draftvla" ] || [ "$MODE" = "draftvla_20260905" ] || [ "$MODE" = 
     --model.phy-proto-ramp-steps="$PROTO_RAMP_STEPS"
   )
 fi
-# Learnable G_phy gain (contract §0c) -- pi0_draftvla_task12 only.
-if [ "$MODE" = "task12" ]; then
+# Learnable G_phy gain (contract §0c) -- pi0_draftvla_task12 (and its v2) only.
+if [ "$MODE" = "task12" ] || [ "$MODE" = "task12_v2" ]; then
   ARGS+=(--model.phy-action-gain-init="${PHY_ACTION_GAIN_INIT:-13}")
 fi
 

@@ -57,7 +57,75 @@ FORCE_INPUT_SIGNAL = contact.CONTACT_INPUT_SIGNAL
 NULL_SAFE_DISTRIBUTION = np.asarray([0.0, 1.0], dtype=np.float32)
 NULL_SOFT_PROTOTYPE_TARGET = np.full(K_PROTOTYPES, 1.0 / K_PROTOTYPES, dtype=np.float32)
 
+# --- v2 (2026-09-22): the gripper action is the teleoperator's BUTTON, not a position -----------
+# Teleoperation had exactly three states, and `gripper_action_target` records them as a position:
+# holding "close" writes 0.0040, holding "open" writes 0.0650, and with no button held the field is
+# a READBACK of the measured width.  Measured over all 62 episodes: 558 close frames (1.6%),
+# 719 open frames (2.0%), 34,272 readback frames (96.4%, |target - width| <= 1.67 mm, never above
+# 2 mm).  Regressing that as an absolute position teaches the network to echo state[6], and on a
+# position-controlled gripper the echo error becomes real motion that accumulates: on 2026-09-21 the
+# carry aperture ratcheted open 8.9 mm in 19 s and the filled carton fell out (both conditions
+# reproduced it).  Re-encoding the channel as the button removes the regression from "hold"
+# entirely -- the client sends no command at all -- so no output error can move the gripper.
+GRIPPER_CLOSE_TARGET_M = 0.004
+GRIPPER_OPEN_TARGET_M = 0.065
+GRIPPER_ANCHOR_TOL_M = 1e-4  # the two commanded values are written bit-exact; the readback is not
+GRIPPER_READBACK_MAX_M = 0.002  # readback lags the width by at most 1.67 mm; beyond 2 mm is a data fault
+GRIPPER_CLOSE, GRIPPER_HOLD, GRIPPER_OPEN = -1.0, 0.0, 1.0
+
+# Frames whose ACTION is "nothing happens" and whose state is indistinguishable from frames where
+# something does: the teleop pauses during the approach, and the whole reset stage (park over the box
+# after release -- not part of the task at all).  They are 39% of the dataset and they outnumber the
+# demonstrated motion at every hover-like state, which is why the policy hovers at z~0.57 and z~0.40
+# on the robot instead of descending.  They stay in the batch -- the physical branch and the
+# normalization statistics still see them -- but contribute 5% of their gradient to the action loss.
+# The grasp stage is deliberately NOT down-weighted even though 96% of its frames are cartesian-still:
+# that stillness is the arm holding position while the gripper closes, and removing it would teach
+# the policy to keep descending into the table.
+ACTION_WEIGHT_FULL = 1.0
+ACTION_WEIGHT_IDLE = 0.05
+IDLE_STAGES = ("reset",)
+
 _load_records = contact.load_records
+
+
+def gripper_button_action(record: dict, episode_name: str) -> float:
+    """`gripper_action_target` -> {-1 close, 0 hold, +1 open}: the button the operator was holding."""
+    target = float(record["gripper_action_target"])
+    if abs(target - GRIPPER_CLOSE_TARGET_M) <= GRIPPER_ANCHOR_TOL_M:
+        return GRIPPER_CLOSE
+    if abs(target - GRIPPER_OPEN_TARGET_M) <= GRIPPER_ANCHOR_TOL_M:
+        return GRIPPER_OPEN
+    width = float(record["gripper_width"])
+    if abs(target - width) > GRIPPER_READBACK_MAX_M:
+        raise ValueError(
+            f"{episode_name} frame {record.get('index')}: gripper_action_target {target:.5f} is neither "
+            f"a button anchor nor a readback of gripper_width {width:.5f} (delta "
+            f"{abs(target - width) * 1e3:.2f} mm > {GRIPPER_READBACK_MAX_M * 1e3:.1f} mm)"
+        )
+    return GRIPPER_HOLD
+
+
+def action_loss_weight(record: dict, button: float) -> float:
+    """1.0, or ACTION_WEIGHT_IDLE for reset frames and for approach frames where nothing moves."""
+    stage = record.get("stage")
+    if stage in IDLE_STAGES:
+        return ACTION_WEIGHT_IDLE
+    if stage == "prepare" and button == GRIPPER_HOLD:
+        speeds = record.get("cmd_speed_l") or [0.0] * 6
+        if max(abs(float(v)) for v in speeds) < 1e-6:
+            return ACTION_WEIGHT_IDLE
+    return ACTION_WEIGHT_FULL
+
+
+def frame_action_7(record: dict, episode_name: str) -> tuple[np.ndarray, float]:
+    """The 7-D action with dim 6 re-encoded as the button, plus this frame's action-loss weight."""
+    action = np.asarray(record["action_7"], dtype=np.float32).copy()
+    if action.shape != (7,):
+        raise ValueError(f"{episode_name}: action_7 has shape {action.shape}, expected (7,)")
+    button = gripper_button_action(record, episode_name)
+    action[6] = button
+    return action, action_loss_weight(record, button)
 
 
 def _load_label_sidecar(labels_dir: pathlib.Path, episode_name: str) -> dict[int, dict]:
@@ -188,12 +256,19 @@ def main(
                     + [f"ft_zeroed_{d}" for d in ("fx", "fy", "fz", "tx", "ty", "tz")]
                 ),
             },
-            "actions": {"dtype": "float32", "shape": (7,), "names": ["actions"]},
+            # dims 0-5 are the commanded TCP twist; dim 6 is the gripper BUTTON (-1/0/+1), not a
+            # position -- see gripper_button_action() for why.
+            "actions": {
+                "dtype": "float32",
+                "shape": (7,),
+                "names": ["vx", "vy", "vz", "wx", "wy", "wz", "gripper_button"],
+            },
             "gt_safe_distribution": {"dtype": "float32", "shape": (2,), "names": ["gt_safe_distribution"]},
             "soft_prototype_target": {"dtype": "float32", "shape": (K_PROTOTYPES,), "names": ["soft_prototype_target"]},
             # LeRobot represents a scalar as shape (1,) -> datasets.Value (not a Sequence).
             "supervision_valid": {"dtype": "bool", "shape": (1,), "names": ["supervision_valid"]},
             "group_id": {"dtype": "int32", "shape": (1,), "names": ["group_id"]},
+            "action_loss_weight": {"dtype": "float32", "shape": (1,), "names": ["action_loss_weight"]},
         },
         image_writer_threads=10,
         image_writer_processes=5,
@@ -201,6 +276,8 @@ def main(
 
     total_frames = 0
     valid_counts: collections.Counter = collections.Counter()
+    button_counts: collections.Counter = collections.Counter()
+    weight_counts: collections.Counter = collections.Counter()
     for episode_dir in selected:
         records = _load_records(episode_dir)
         sidecar = _load_label_sidecar(labels_root, episode_dir.name)
@@ -213,17 +290,21 @@ def main(
             contact_input = contact.contact_input_57(r, zeroing, episode_dir.name)
             safe, proto, valid, group_id = _frame_labels(sidecar[r["index"]])
             valid_counts[valid] += 1
+            action, weight = frame_action_7(r, episode_dir.name)
+            button_counts[float(action[6])] += 1
+            weight_counts[weight] += 1
             dataset.add_frame(
                 {
                     "image": np.asarray(Image.open(episode_dir / r["image_path"]).convert("RGB")),
                     "wrist_image": np.asarray(Image.open(episode_dir / r["wrist_image_path"]).convert("RGB")),
                     "state": state,
                     "contact_input": contact_input,
-                    "actions": np.asarray(r["action_7"], dtype=np.float32),
+                    "actions": action,
                     "gt_safe_distribution": safe,
                     "soft_prototype_target": proto,
                     "supervision_valid": np.asarray([valid], dtype=bool),
                     "group_id": np.asarray([group_id], dtype=np.int32),
+                    "action_loss_weight": np.asarray([weight], dtype=np.float32),
                     "task": r["prompt"],
                 }
             )
@@ -239,6 +320,15 @@ def main(
     print(f"Episodes converted: {len(selected)}   skipped (denylist): {len(skipped)}   frames: {total_frames}")
     print(f"supervision_valid:  True={valid_counts[True]}  False={valid_counts[False]}")
     print(f"force input:        {FORCE_INPUT_SIGNAL}")
+    print(
+        f"gripper button:     close={button_counts[GRIPPER_CLOSE]}  hold={button_counts[GRIPPER_HOLD]}  "
+        f"open={button_counts[GRIPPER_OPEN]}   (62-episode train split expects 558 / 34272 / 719)"
+    )
+    print(
+        f"action weight:      {ACTION_WEIGHT_FULL}={weight_counts[ACTION_WEIGHT_FULL]}  "
+        f"{ACTION_WEIGHT_IDLE}={weight_counts[ACTION_WEIGHT_IDLE]}  "
+        f"({weight_counts[ACTION_WEIGHT_IDLE] / max(total_frames, 1):.0%} down-weighted; train split expects 39%)"
+    )
     print("=" * 100)
 
     # Written last: its presence proves the process completed every selected episode. `info.json`
@@ -255,6 +345,21 @@ def main(
         "force_input_signal": FORCE_INPUT_SIGNAL,
         "contact_input_dim": contact.CONTACT_INPUT_DIM,
         "k_prototypes": K_PROTOTYPES,
+        # v2 action contract: dim 6 is the teleop button, not a position. A server built from this
+        # dataset must be decoded with the matching client rule (|v| <= 0.5 -> send nothing).
+        "gripper_action_encoding": "button_v2",
+        "gripper_button_values": {"close": GRIPPER_CLOSE, "hold": GRIPPER_HOLD, "open": GRIPPER_OPEN},
+        "gripper_button_counts": {
+            "close": button_counts[GRIPPER_CLOSE],
+            "hold": button_counts[GRIPPER_HOLD],
+            "open": button_counts[GRIPPER_OPEN],
+        },
+        "action_loss_weight": {
+            "full": ACTION_WEIGHT_FULL,
+            "idle": ACTION_WEIGHT_IDLE,
+            "idle_stages": list(IDLE_STAGES),
+            "idle_frames": weight_counts[ACTION_WEIGHT_IDLE],
+        },
     }
     (output_path / ".draftvla_conversion_complete.json").write_text(json.dumps(completion, indent=2) + "\n")
     print(f"Completion marker: {output_path / '.draftvla_conversion_complete.json'}")

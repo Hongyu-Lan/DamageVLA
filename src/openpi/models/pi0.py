@@ -189,6 +189,45 @@ class Pi0(_model.BaseModel):
         }
         return g_fvl + g_phy.astype(g_fvl.dtype), phy
 
+    def probe_features(self, observation: _model.Observation) -> dict[str, at.Array]:
+        """Frozen internal representations for offline probing (no sampling, no gradients).
+
+        Used to ask the same question of every arm -- "how much of the demonstrated safe-interaction
+        statistics can be read out of this model's representation?" -- WITHOUT changing the model:
+        a small head is fitted on these features afterwards (examples/force/probe_train_eval.py). This
+        is how the ForceVLA and no-force baselines, which carry no distribution head, get a held-out
+        KL comparable to PiVLA's, and how the paper's Q5 probe ("z_phy recovers the condition where
+        the vision-language token does not") is evaluated.
+
+        Keys (all float32, [b, dim]):
+          vl_prefix_mean     masked mean of the frozen VLM prefix (image + text tokens)   -- every arm
+          vl_prefix_last     last valid prefix token (the final text token)               -- every arm
+          force_token_raw    force_proj(contact_input), before fusion                      -- force-aware arms
+          fused_force_token  the force token after FVLMoE, i.e. what z_phy is read from   -- FVLMoE arms
+          z_phy              the physical token                                            -- physical-branch arm
+        The VLM is frozen in all arms, so vl_prefix_* is the same function everywhere: the control.
+        """
+        observation = _model.preprocess_observation(None, observation, train=False)
+        prefix_tokens, prefix_mask, prefix_ar_mask = self.embed_prefix(observation)
+        prefix_attn_mask = make_attn_mask(prefix_mask, prefix_ar_mask)
+        positions = jnp.cumsum(prefix_mask, axis=1) - 1
+        (prefix_out, _), _ = self.PaliGemma.llm([prefix_tokens, None], mask=prefix_attn_mask, positions=positions)
+
+        mask = prefix_mask[..., None].astype(jnp.float32)
+        out32 = prefix_out.astype(jnp.float32)
+        feats = {"vl_prefix_mean": (out32 * mask).sum(1) / jnp.maximum(mask.sum(1), 1.0)}
+        last = jnp.sum(prefix_mask, axis=1) - 1
+        feats["vl_prefix_last"] = jnp.take_along_axis(out32, last[:, None, None], axis=1)[:, 0]
+        if self.force_aware and self.force_fusion == "fvlmoe" and observation.force is not None:
+            force_token = self.force_proj(observation.force)[:, None, :]
+            feats["force_token_raw"] = force_token[:, 0, :].astype(jnp.float32)
+            _, hidden = self.fvlmoe(prefix_out, force_token, return_hidden=True)
+            fused = hidden[:, -1, :]
+            feats["fused_force_token"] = fused.astype(jnp.float32)
+            if self.phy_enabled:
+                feats["z_phy"] = self.phy_proj(fused).astype(jnp.float32)
+        return feats
+
     @at.typecheck
     def embed_prefix(
         self, obs: _model.Observation
@@ -345,9 +384,23 @@ class Pi0(_model.BaseModel):
         config trains bit-identically.
         """
         chunked_loss, phy = self._flow_loss_and_phy(rng, observation, actions, train=train)
-        loss_flow = jnp.mean(chunked_loss)
+        # Per-frame action-loss weight (v2 datasets, convert_draftvla_data_to_lerobot.action_loss_weight).
+        # The teleop pauses during the approach and the whole reset stage are demonstrated as "hold
+        # still"; at every hover-like state they outnumber the demonstrated motion, and the policy
+        # learned to hover on the robot (2026-09-21). They stay in the batch -- the physical branch below
+        # and the normalization statistics still see them -- but contribute their weight (0.05) of
+        # gradient to the flow loss. With no weight in `aux`, or all weights 1, this is exactly the
+        # old mean(chunked_loss), so every v1 config trains bit-identically.
+        weight_metrics: dict[str, at.Array] = {}
+        if aux and "action_loss_weight" in aux:
+            weight = jnp.asarray(aux["action_loss_weight"], dtype=chunked_loss.dtype).reshape(chunked_loss.shape[0])
+            per_sample = jnp.mean(chunked_loss, axis=-1)
+            loss_flow = jnp.sum(per_sample * weight) / jnp.maximum(jnp.sum(weight), 1e-6)
+            weight_metrics["action_weight_mean"] = jnp.mean(weight)
+        else:
+            loss_flow = jnp.mean(chunked_loss)
         if phy is None or not aux:
-            return loss_flow, {"loss_flow": loss_flow}
+            return loss_flow, {"loss_flow": loss_flow, **weight_metrics}
 
         valid = aux["supervision_valid"].astype(jnp.bool_)
         num_valid = jnp.sum(valid.astype(jnp.float32))
@@ -424,6 +477,7 @@ class Pi0(_model.BaseModel):
             "phy_alpha": self.phy_action_proj.gain.value,
         }
         metrics |= {f"kl_{name}": _physical.masked_mean(kl_dims[:, i], valid) for i, name in enumerate(dim_names)}
+        metrics |= weight_metrics  # action_weight_mean when the v2 per-frame weight is present
         return total, metrics
 
     @override
@@ -435,6 +489,37 @@ class Pi0(_model.BaseModel):
         num_steps: int | at.Int[at.Array, ""] = 10,
         noise: at.Float[at.Array, "b ah ad"] | None = None,
     ) -> _model.Actions:
+        actions, _ = self._sample_actions_and_physical(rng, observation, num_steps=num_steps, noise=noise)
+        return actions
+
+    def sample_actions_with_physical(
+        self,
+        rng: at.KeyArrayLike,
+        observation: _model.Observation,
+        *,
+        num_steps: int | at.Int[at.Array, ""] = 10,
+        noise: at.Float[at.Array, "b ah ad"] | None = None,
+    ) -> tuple[_model.Actions, dict[str, at.Array]]:
+        """`sample_actions` plus the physical-branch readouts of the SAME forward pass.
+
+        Returns `(actions, phy)`. With the physical branch enabled, `phy` holds `mu_pred` /
+        `sigma_pred` [b, safe_force_dim] (de-normalized), `proto_probs` [b, K] and `z_phy` [b, phy_dim];
+        otherwise it is `{}`. The readouts come from the very `_force_guidance` call whose G_phy shaped
+        these actions, so what gets logged is what acted -- no second forward pass, no drift between
+        the two. Serving (policy.py) samples through this so evaluation rollouts can record mu_hat,
+        sigma_hat, proto_prob and z_phy per frame (notes/eval_logging_spec.md §4). The readouts are
+        diagnostics, never control outputs.
+        """
+        return self._sample_actions_and_physical(rng, observation, num_steps=num_steps, noise=noise)
+
+    def _sample_actions_and_physical(
+        self,
+        rng: at.KeyArrayLike,
+        observation: _model.Observation,
+        *,
+        num_steps: int | at.Int[at.Array, ""] = 10,
+        noise: at.Float[at.Array, "b ah ad"] | None = None,
+    ) -> tuple[_model.Actions, dict[str, at.Array]]:
         observation = _model.preprocess_observation(None, observation, train=False)
         # note that we use the convention more common in diffusion literature, where t=1 is noise and t=0 is the target
         # distribution. yes, this is the opposite of the pi0 paper, and I'm sorry.
@@ -456,8 +541,17 @@ class Pi0(_model.BaseModel):
         # the INFERENCE injection site; `compute_loss` has the training one. Both go through
         # `_force_guidance`, so G_phy cannot be added to one and forgotten at the other.
         guidance = None
+        physical: dict[str, at.Array] = {}
         if self.force_aware and self.force_fusion == "fvlmoe" and observation.force is not None:
-            guidance, _ = self._force_guidance(prefix_out, observation.force)
+            guidance, phy = self._force_guidance(prefix_out, observation.force)
+            if phy is not None:
+                # float32 so a bfloat16 serving model still logs full-precision readouts.
+                physical = {
+                    "mu_pred": phy["mu_pred"].astype(jnp.float32),
+                    "sigma_pred": phy["sigma_pred"].astype(jnp.float32),
+                    "proto_probs": jax.nn.softmax(phy["proto_logits"].astype(jnp.float32), axis=-1),
+                    "z_phy": phy["z_phy"].astype(jnp.float32),
+                }
 
         def step(carry):
             x_t, time = carry
@@ -502,4 +596,4 @@ class Pi0(_model.BaseModel):
             return time >= -dt / 2
 
         x_0, _ = jax.lax.while_loop(cond, step, (noise, 1.0))
-        return x_0
+        return x_0, physical

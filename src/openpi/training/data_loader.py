@@ -530,7 +530,15 @@ class RLDSDataLoader:
 # Supervision keys that are labels/masks rather than model inputs. They are routed to the loss as a
 # separate `aux` dict so they can never end up inside the model's input PyTree -- notably `group_id`,
 # which is supervision-only by design (outlines/draftvla_plan.md v2.1 rule 9, §5.2 Option A).
-AUX_KEYS = ("gt_safe_distribution", "soft_prototype_target", "supervision_valid", "group_id")
+AUX_KEYS = (
+    "gt_safe_distribution",
+    "soft_prototype_target",
+    "supervision_valid",
+    "group_id",
+    # v2 (2026-09-22): per-frame weight on the action (flow) loss only. Written by the converter;
+    # absent from v1 datasets, in which case the loss is the plain mean as before.
+    "action_loss_weight",
+)
 
 
 class DataLoaderImpl(DataLoader):

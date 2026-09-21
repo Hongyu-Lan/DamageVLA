@@ -82,8 +82,38 @@ case "$MODE" in
     NUM_CPUS=16
     MEMORY=120G
     ;;
+  # --- v2 (2026-09-22): gripper button action + action_loss_weight, dataset draftvla/task12_tactile_{train,val}_v2.
+  # The smoke job also performs the v2 dataset conversion (both splits) the first time it runs.
+  smoke_task12_v2)
+    CONFIG_FILE=train_config_leonardo_smoke_task12_v2.conf
+    WALLTIME=03:00:00
+    NUM_GPUS=1
+    NUM_CPUS=16
+    MEMORY=120G
+    ;;
+  full_task12_v2)
+    CONFIG_FILE=train_config_task12_v2.conf
+    WALLTIME=24:00:00
+    NUM_GPUS=1
+    NUM_CPUS=16
+    MEMORY=120G
+    ;;
+  full_task12_v2_forcevla)
+    CONFIG_FILE=train_config_task12_v2_forcevla.conf
+    WALLTIME=24:00:00
+    NUM_GPUS=1
+    NUM_CPUS=16
+    MEMORY=120G
+    ;;
+  full_task12_v2_noforce)
+    CONFIG_FILE=train_config_task12_v2_noforce.conf
+    WALLTIME=24:00:00
+    NUM_GPUS=1
+    NUM_CPUS=16
+    MEMORY=120G
+    ;;
   *)
-    echo "Usage: bash submit_leonardo.sh [smoke|smoke4|full|smoke_20260905|full_20260905|smoke_combined|full_combined|smoke_task12|full_task12|full_task12_forcevla|full_task12_noforce]" >&2
+    echo "Usage: bash submit_leonardo.sh [smoke|smoke4|full|smoke_20260905|full_20260905|smoke_combined|full_combined|smoke_task12|full_task12|full_task12_forcevla|full_task12_noforce|smoke_task12_v2|full_task12_v2|full_task12_v2_forcevla|full_task12_v2_noforce]" >&2
     exit 2
     ;;
 esac

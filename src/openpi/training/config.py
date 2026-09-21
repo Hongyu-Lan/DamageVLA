@@ -293,31 +293,34 @@ class LeRobotDraftVLADataConfig(DataConfigFactory):
     denylist and reads labels from build_safe_group_prototypes.py sidecars (split-first, §F).
     NOTE: repos converted under the retired 12-D wrench contract (draftvla/fruits_tactile*) do not
     have the `contact_input` feature and fail loudly here -- that is intentional.
+
+    v2 datasets (2026-09-22, `draftvla/task12_tactile_*_v2`) additionally carry `action_loss_weight`
+    and encode action dim 6 as the teleop gripper button; set `with_action_loss_weight=True` for them.
+    RepackTransform raises on a missing source key, so the flag is what keeps v1 datasets loadable.
     """
+
+    with_action_loss_weight: bool = False
 
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
         # Match the LeRobot feature names (set in the conversion script) to the "observation/*" keys
         # read by DraftVLAInputs. Only runs on dataset rows, not at inference -- which is why the
         # label keys below exist here but not in the inference path.
-        repack_transform = _transforms.Group(
-            inputs=[
-                _transforms.RepackTransform(
-                    {
-                        "observation/image": "image",
-                        "observation/wrist_image": "wrist_image",
-                        "observation/state": "state",
-                        "observation/contact_input": "contact_input",
-                        "actions": "actions",
-                        "prompt": "prompt",
-                        "gt_safe_distribution": "gt_safe_distribution",
-                        "soft_prototype_target": "soft_prototype_target",
-                        "supervision_valid": "supervision_valid",
-                        "group_id": "group_id",
-                    }
-                )
-            ]
-        )
+        repack_keys = {
+            "observation/image": "image",
+            "observation/wrist_image": "wrist_image",
+            "observation/state": "state",
+            "observation/contact_input": "contact_input",
+            "actions": "actions",
+            "prompt": "prompt",
+            "gt_safe_distribution": "gt_safe_distribution",
+            "soft_prototype_target": "soft_prototype_target",
+            "supervision_valid": "supervision_valid",
+            "group_id": "group_id",
+        }
+        if self.with_action_loss_weight:
+            repack_keys["action_loss_weight"] = "action_loss_weight"
+        repack_transform = _transforms.Group(inputs=[_transforms.RepackTransform(repack_keys)])
 
         data_transforms = _transforms.Group(
             inputs=[draftvla_policy.DraftVLAInputs(model_type=model_config.model_type)],
@@ -1076,6 +1079,107 @@ _CONFIGS = [
         data=LeRobotDraftVLADataConfig(
             repo_id="draftvla/task12_tactile_train",
             base_config=DataConfig(prompt_from_task=True),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi0_base/params"),
+        freeze_filter=pi0_config.Pi0Config(action_dim=32, action_horizon=8, freeze_vlm=True).get_freeze_filter(),
+        ema_decay=None,
+        batch_size=16,
+        num_train_steps=10_000,
+        fsdp_devices=1,
+    ),
+    # === v2 (2026-09-22): the same three arms on the v2 DATA. Model hyperparameters are identical to
+    # the *_task12 configs above; only the dataset changes:
+    #   * action dim 6 = teleop gripper BUTTON (-1 close / 0 hold / +1 open) instead of a position --
+    #     the 2026-09-21 robot runs showed the position label (96% of frames = a readback of state[6])
+    #     teaches the network to echo the measured width, which ratchets the gripper open during the
+    #     carry (both cartons) and gives "how much to close" 1.6% of the frames as supervision;
+    #   * per-frame action_loss_weight: reset stage + approach pauses (39% of frames) -> 0.05 on the
+    #     flow loss, so hover-like states are no longer dominated by "do nothing" labels.
+    # Physical-branch labels, norm-stats keys, freeze and data split are unchanged; the baselines get
+    # exactly the same data so the three-arm comparison still isolates the force input / branch.
+    TrainConfig(
+        name="pi0_draftvla_task12_v2",
+        model=pi0_config.Pi0Config(
+            action_dim=32,
+            action_horizon=8,
+            force_aware=True,
+            force_dim=57,
+            force_fusion="fvlmoe",
+            freeze_vlm=True,
+            phy_enabled=True,
+            safe_force_dim=1,
+            phy_num_prototypes=6,
+            lambda_dist=1.0,
+            lambda_proto=0.05,
+            phy_proto_ramp_start=1000,
+            phy_proto_ramp_steps=2000,
+            phy_action_gain_init=13.0,
+            # Same 62-episode train split and label sidecars as v1, so the group statistics are unchanged.
+            phy_label_mean=(1.030667,),
+            phy_label_scale=(0.404691,),
+        ),
+        data=LeRobotDraftVLADataConfig(
+            repo_id="draftvla/task12_tactile_train_v2",
+            base_config=DataConfig(prompt_from_task=True),
+            with_action_loss_weight=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "gs://openpi-assets/checkpoints/pi0_base/params",
+            extra_missing_regex=".*(force_proj|fvlmoe|phy_proj|phy_action_proj|phy_dist_head|phy_proto_cls).*",
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            action_dim=32,
+            action_horizon=8,
+            force_aware=True,
+            force_dim=57,
+            force_fusion="fvlmoe",
+            freeze_vlm=True,
+            phy_enabled=True,
+        ).get_freeze_filter(),
+        ema_decay=None,
+        batch_size=16,
+        num_train_steps=10_000,
+        fsdp_devices=1,
+    ),
+    TrainConfig(
+        name="pi0_draftvla_task12_v2_forcevla",
+        model=pi0_config.Pi0Config(
+            action_dim=32,
+            action_horizon=8,
+            force_aware=True,
+            force_dim=57,
+            force_fusion="fvlmoe",
+            freeze_vlm=True,
+        ),
+        data=LeRobotDraftVLADataConfig(
+            repo_id="draftvla/task12_tactile_train_v2",
+            base_config=DataConfig(prompt_from_task=True),
+            with_action_loss_weight=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "gs://openpi-assets/checkpoints/pi0_base/params",
+            extra_missing_regex=".*(force_proj|fvlmoe).*",
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            action_dim=32,
+            action_horizon=8,
+            force_aware=True,
+            force_dim=57,
+            force_fusion="fvlmoe",
+            freeze_vlm=True,
+        ).get_freeze_filter(),
+        ema_decay=None,
+        batch_size=16,
+        num_train_steps=10_000,
+        fsdp_devices=1,
+    ),
+    TrainConfig(
+        name="pi0_draftvla_task12_v2_noforce",
+        model=pi0_config.Pi0Config(action_dim=32, action_horizon=8, freeze_vlm=True),
+        data=LeRobotDraftVLADataConfig(
+            repo_id="draftvla/task12_tactile_train_v2",
+            base_config=DataConfig(prompt_from_task=True),
+            with_action_loss_weight=True,
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi0_base/params"),
         freeze_filter=pi0_config.Pi0Config(action_dim=32, action_horizon=8, freeze_vlm=True).get_freeze_filter(),

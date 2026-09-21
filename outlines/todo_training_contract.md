@@ -311,3 +311,42 @@ uv run scripts/compute_norm_stats.py --config-name <train config>
 - **grasp 阶段样本少**：果蔬批次里只占 3.9%，纸盒采集已改为分段闭合来缓解；必要时给 `L_dist` 按阶段加权。
 - **消融分支还没有代码开关**：no-guidance（去掉 `G_phy`）、vision--language token（**必须取 FVLMoE 融合之前的 VLM 前缀 token**）、oracle-group。architecture-only、distribution-only、prototype-only 用现有的 `LAMBDA_DIST` / `LAMBDA_PROTO` 即可。
 - 论文里的"物理语义"定位调整见 `-ICLR2027-DraftVLA/notes/physical_semantics_framing.md`，等纸盒实验跑通再议。
+
+## J. v2 动作契约（2026-09-22）：夹爪按键编码 + 动作损失权重
+
+**起因（2026-09-21 真机 11 次 v2 试验，2 次接触）。** 三个失败机制都追到了训练数据的处理方式，不是数据量：
+
+1. 全数据集 38% 的帧笛卡尔指令速度恰为零（遥操作停顿），reset 段占 29% 且 62% 静止。在"夹爪张开、手臂高"
+   的状态上"别动"的标签比"下降"多得多，观测里无法区分，策略在 z≈0.57 和 z≈0.40 抽签悬停，−x 偏置（示教
+   prepare 均值 −0.64 mm/s）在悬停期间积分到工作空间边界。
+2. `gripper_action_target` 是遥操作按键的位置回读：按住闭合写 0.0040（558 帧，1.6%），按住打开写 0.0650
+   （719 帧，2.0%），没按键时**等于当前实测开度**（34,272 帧，96.4%，|target − width| ≤ 1.67 mm）。当作绝对位置
+   回归后网络学到"照抄 `state[6]`"，在位置控制的夹爪上回归误差变成真实运动并累积：搬运段 19 s 张开 8.9 mm，
+   满盒脱手，空盒同样复现。且"闭多少"只有 1.6% 的帧在监督，"停"被编码成回读切换，没有正信号。
+3. 一并观察到：过抓 2.4×（满）到 13×（空）示教 hold 上界；分布头 μ̂ 在真接触下跟随瞬时握力而非条件。
+
+**改动（三条 arm 共享数据，模型超参不动）。** `examples/force/convert_draftvla_data_to_lerobot.py`：
+
+- `actions[6]` ∈ {−1 闭合, 0 保持, +1 打开}，由 `gripper_button_action()` 从两个精确锚点判定，其余一律"保持"，
+  |target − width| > 2 mm 视为数据错误抛出。
+- 新字段 `action_loss_weight`（`(1,)` float32）：`reset` 段和 prepare 段"速度为零且没按键"的帧为 0.05，其余 1.0。
+  grasp 段的静止帧**保持 1.0**——那是手臂持位、夹爪闭合的标签，去掉会学成一路下降到桌面。
+- 新 `repo_id`：`draftvla/task12_tactile_train_v2` / `_val_v2`；`.draftvla_conversion_complete.json` 记
+  `gripper_action_encoding: "button_v2"` 和各类计数。
+- 模型侧 `pi0.compute_train_losses`：`loss_flow = Σ w·mean_h(loss) / Σ w`；`aux` 无该键或全 1 时逐位等于原
+  `mean`。只作用于 flow loss，物理分支损失、norm stats、标签全部不变。
+- 数据配置 `LeRobotDraftVLADataConfig(with_action_loss_weight=True)` 才 repack 该键（RepackTransform 对缺失键
+  抛错，v1 数据集不受影响）。配置 `pi0_draftvla_task12_v2{,_forcevla,_noforce}`，`submit_leonardo.sh`
+  `smoke_task12_v2` / `full_task12_v2*`。
+
+**部署侧配套（DamageVLA 客户端，未随本次提交）。** 解码规则：`v < −0.5` 发闭合目标 0.004（Phase 3 钳成当前开度
+− `max_gripper_step_m`，2 mm/行 ≈ 20 mm/s，与示教脉冲 6.5 mm/0.3 s 一致），`v > +0.5` 发打开目标 0.065，
+否则**不发夹爪指令**。release metadata 需带 `gripper_action_encoding=button_v2`，客户端据此选解码规则。
+
+**验收。** 转换打印 close=558 / hold=34272 / open=719、39% 降权；smoke 200 步 loss 有限、`g_phy_rel` 非零、
+`action_weight_mean` ≈ 0.63；新 checkpoint 上重跑 G1 闸门（接触后空/满 μ̂ 仍分开）、三条 arm 的探针
+（`probe_features.py` → `probe_train_eval.py`）、以及留出 grasp 段帧上第 7 维输出直方图能看到 −1 的峰。
+
+**不解决的（另行处理）。** 实例泄漏（carton_01/02 外观可分）、G0 标定扫描、逐 tick taxel 记录、约 0.4–0.5 s 的
+真实动作陈旧度（记录值约 1 s 是把零权重旧 chunk 也算进去的假象）、右指传感器加载后零点松弛（约 −0.1 V，
+与空盒信号同量级）。

@@ -32,7 +32,8 @@ from openpi.models import model as _model
 from openpi.policies import force_policy
 
 # Label keys that are supervision, not model input. Kept in sync with data_loader.AUX_KEYS.
-AUX_KEYS = ("gt_safe_distribution", "soft_prototype_target", "supervision_valid", "group_id")
+# `action_loss_weight` (v2, 2026-09-22) weights the flow loss per frame; v1 datasets do not carry it.
+AUX_KEYS = ("gt_safe_distribution", "soft_prototype_target", "supervision_valid", "group_id", "action_loss_weight")
 
 
 def make_draftvla_example() -> dict:
@@ -72,12 +73,19 @@ class DraftVLAOutputs(transforms.DataTransformFn):
     def __call__(self, data: dict) -> dict:
         # First 7 action dims (TCP velocity x6 + gripper target); the rest is padding.
         outputs = {"actions": np.asarray(data["actions"][:, :7])}
-        # Assemble the [12] safe-distribution at the serving boundary only -- the model carries mu
-        # and sigma separately so the two forms cannot drift out of sync (plan §6.3).
+        # Physical-branch readouts, present when the policy sampled through
+        # `sample_actions_with_physical` (policy.py). Assemble [mu, sigma] at the serving boundary
+        # only -- the model carries mu and sigma separately so the two forms cannot drift out of sync
+        # (plan §6.3). Under the 1-D grip contract this is 2 numbers: [mu_hat, sigma_hat].
         if "mu_pred" in data and "sigma_pred" in data:
             outputs["safe_force_distribution"] = np.concatenate(
                 [np.asarray(data["mu_pred"]), np.asarray(data["sigma_pred"])], axis=-1
             )
         if "proto_probs" in data:
             outputs["prototype_probs"] = np.asarray(data["proto_probs"])
+        if "z_phy" in data:
+            # The 128-D physical token itself, logged per frame: the offline representation analyses
+            # (linear probe, retrieval, cross-task prototypes) can only be run from it, and a rollout
+            # that did not store it has to be repeated (notes/eval_logging_spec.md §4.2).
+            outputs["z_phy"] = np.asarray(data["z_phy"])
         return outputs

@@ -12,6 +12,13 @@
 > force_torque_zeroed(6)]` — see `draftvla_contact.py` (single source of truth; a robot client must
 > apply the same per-episode fingertip zeroing). The estimated tactile wrench is not used anywhere.
 >
+> **Response (2026-09-21).** `pi0_draftvla_task12` answers with `actions` (8, 7) **and** the
+> physical-branch readouts of the same forward pass — `safe_force_distribution` `[mu_hat, sigma_hat]`,
+> `prototype_probs` (6), `z_phy` (128) — via `Pi0.sample_actions_with_physical` (`policy.py` picks it
+> whenever `phy_enabled`). Log them per frame (`notes/eval_logging_spec.md` §4); they are never control
+> inputs. The `_forcevla` / `_noforce` arms return `actions` only. Offline gate on held-out episodes:
+> `examples/force/g1_gate_offline.py`.
+>
 > ```bash
 > # 1) labels + split (split-first: statistics fit on the 62 train episodes only)
 > uv run examples/force/build_safe_group_prototypes.py \
@@ -102,6 +109,14 @@ The model consumes, per timestep:
 - wrench input: DraftVLA uses 12-D `[mean_fx..mean_tz, difference_fx..difference_tz]` (z-score
   normalized), while legacy `pi0_force_*` configs use the 6-D flange `force_torque`.
 - `actions` (7) = `action_7` = TCP velocity (6) + gripper target (1) — already relative, **no delta conversion**
+  - **v2 datasets (`draftvla/task12_tactile_*_v2`, 2026-09-22)**: dim 6 is the teleop gripper **button**,
+    `-1` close / `0` hold / `+1` open, not a position. The raw `gripper_action_target` is 0.004 while
+    "close" is held (1.6% of frames), 0.065 while "open" is held (2.0%), and otherwise a readback of the
+    measured width (96.4%) — regressing that readback taught the policy to echo `state[6]` and ratchet
+    the gripper open during the carry. Decode on the robot: `v < -0.5` → send the close target,
+    `v > +0.5` → send the open target, otherwise **send no gripper command**. v2 rows also carry
+    `action_loss_weight` (0.05 on reset-stage frames and on approach pauses, 1.0 elsewhere), applied to
+    the flow loss only. See `outlines/todo_training_contract.md` §J.
 - `prompt` (language instruction)
 
 The raw dataset is a folder containing `observations.jsonl` + `rgb/*.jpg` + `wrist/*.jpg`

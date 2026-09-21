@@ -1,5 +1,7 @@
 import flax.nnx as nnx
 import jax
+import jax.numpy as jnp
+import numpy as np
 import pytest
 
 import openpi.models.pi0_config as _pi0_config
@@ -117,3 +119,94 @@ def test_pi0_force_fvlmoe_forward():
     assert loss.shape == (2, config.action_horizon)
     out = model.sample_actions(jax.random.key(2), obs, num_steps=2)
     assert out.shape == (2, config.action_horizon, config.action_dim)
+
+
+# === Physical branch readouts at inference (DraftVLA) ===
+
+
+def phy_dummy_config(**overrides) -> _pi0_config.Pi0Config:
+    """The task12 physical branch on the dummy backbones: 57-D contact input, 1-D grip target, K=6."""
+    kwargs = {
+        "paligemma_variant": "dummy",
+        "action_expert_variant": "dummy",
+        "action_horizon": 4,
+        "force_aware": True,
+        "force_fusion": "fvlmoe",
+        "force_dim": 57,
+        "phy_enabled": True,
+        "safe_force_dim": 1,
+        "phy_num_prototypes": 6,
+        "phy_label_mean": (1.0,),
+        "phy_label_scale": (0.4,),
+    }
+    kwargs.update(overrides)
+    return _pi0_config.Pi0Config(**kwargs)
+
+
+@pytest.mark.manual
+def test_pi0_phy_sample_actions_with_physical_returns_readouts_of_the_same_pass():
+    config = phy_dummy_config()
+    model = config.create(jax.random.key(0))
+    obs = config.fake_obs(batch_size=2)
+    noise = jax.random.normal(jax.random.key(3), (2, config.action_horizon, config.action_dim))
+
+    actions, phy = model.sample_actions_with_physical(jax.random.key(2), obs, num_steps=2, noise=noise)
+    plain = model.sample_actions(jax.random.key(2), obs, num_steps=2, noise=noise)
+
+    # Same pass, same actions: exposing the readouts must not change what is sampled.
+    assert actions.shape == (2, config.action_horizon, config.action_dim)
+    np.testing.assert_array_equal(np.asarray(actions), np.asarray(plain))
+
+    assert set(phy) == {"mu_pred", "sigma_pred", "proto_probs", "z_phy"}
+    assert phy["mu_pred"].shape == (2, 1)
+    assert phy["sigma_pred"].shape == (2, 1)
+    assert bool(jnp.all(phy["sigma_pred"] > 0)), "softplus sigma must be strictly positive"
+    assert phy["proto_probs"].shape == (2, 6)
+    np.testing.assert_allclose(np.asarray(phy["proto_probs"]).sum(-1), 1.0, atol=1e-5)
+    assert phy["z_phy"].shape == (2, config.phy_dim)
+    np.testing.assert_allclose(np.linalg.norm(np.asarray(phy["z_phy"]), axis=-1), 1.0, atol=1e-3)
+    assert all(v.dtype == jnp.float32 for v in phy.values())
+
+
+@pytest.mark.manual
+def test_pi0_probe_features_keys_follow_the_arm():
+    """Every arm exposes the frozen VL prefix; force-aware arms add the force path; only the
+    physical-branch arm adds z_phy. Shapes are [b, dim], float32, and finite."""
+    full = phy_dummy_config()
+    forcevla = _pi0_config.Pi0Config(
+        paligemma_variant="dummy", action_expert_variant="dummy", action_horizon=4, force_aware=True, force_fusion="fvlmoe", force_dim=57
+    )
+    noforce = _pi0_config.Pi0Config(paligemma_variant="dummy", action_expert_variant="dummy", action_horizon=4)
+    expected = {
+        "full": {"vl_prefix_mean", "vl_prefix_last", "force_token_raw", "fused_force_token", "z_phy"},
+        "forcevla": {"vl_prefix_mean", "vl_prefix_last", "force_token_raw", "fused_force_token"},
+        "noforce": {"vl_prefix_mean", "vl_prefix_last"},
+    }
+    for name, config in (("full", full), ("forcevla", forcevla), ("noforce", noforce)):
+        model = config.create(jax.random.key(0))
+        feats = model.probe_features(config.fake_obs(batch_size=2))
+        assert set(feats) == expected[name], (name, set(feats))
+        for k, v in feats.items():
+            assert v.shape[0] == 2 and v.ndim == 2, (name, k, v.shape)
+            assert v.dtype == jnp.float32 and bool(jnp.all(jnp.isfinite(v))), (name, k)
+    assert model.probe_features(noforce.fake_obs(batch_size=2))["vl_prefix_mean"].shape[1] > 0
+
+
+@pytest.mark.manual
+def test_pi0_forcevla_sample_actions_with_physical_has_no_readouts():
+    """Physical branch OFF (the ForceVLA arm): same API, empty readouts, actions unchanged."""
+    config = _pi0_config.Pi0Config(
+        paligemma_variant="dummy",
+        action_expert_variant="dummy",
+        action_horizon=4,
+        force_aware=True,
+        force_fusion="fvlmoe",
+        force_dim=57,
+    )
+    model = config.create(jax.random.key(0))
+    obs = config.fake_obs(batch_size=2)
+    noise = jax.random.normal(jax.random.key(3), (2, config.action_horizon, config.action_dim))
+    actions, phy = model.sample_actions_with_physical(jax.random.key(2), obs, num_steps=2, noise=noise)
+    assert phy == {}
+    plain = model.sample_actions(jax.random.key(2), obs, num_steps=2, noise=noise)
+    np.testing.assert_array_equal(np.asarray(actions), np.asarray(plain))
