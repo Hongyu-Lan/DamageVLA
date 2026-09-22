@@ -71,6 +71,19 @@ class Pi0Config(_model.BaseModelConfig):
     # 13 lifts the initial g_phy_rel from ~0.023 to ~0.3). 1.0 preserves the legacy behavior. If the
     # first ~500 steps show loss_flow clearly worse than the forcevla baseline (~0.028), drop to 5-8.
     phy_action_gain_init: float = 1.0
+    # === Ablation switches (2026-09-22). THE DEFAULTS ARE PiVLA. ===
+    # Leaving both untouched reproduces the full method bit-for-bit, so the three main arms need no
+    # edit; setting a switch back to its default here is the whole "restore PiVLA" operation.
+    #
+    # B2 "no extra guidance": False drops G_phy from the action path. z_phy, both heads and both
+    # auxiliary losses stay on -- the supervision still reaches the action expert through the shared
+    # FVLMoE (G_fvl), so this variant subtracts the direct pathway alone, not the supervision.
+    phy_guidance: bool = True
+    # B3 "vision-language token": True reads z_phy from the last VALID VLM prefix token, taken
+    # BEFORE FVLMoE fusion, instead of the fused force token. FVLMoE and G_fvl are untouched, so
+    # force still reaches the action expert; only the origin of the representation moves. Any
+    # post-fusion token would already have attended to the force token and prove nothing.
+    phy_source_vl: bool = False
     # Safe-distribution label normalizer (plan §6.2). ONE scale per physical dim, shared by mu and
     # sigma -- that shared scale is what keeps the KL identical to raw space. `mean` shifts mu only.
     #
@@ -84,6 +97,11 @@ class Pi0Config(_model.BaseModelConfig):
     pytorch_compile_mode: str | None = "max-autotune"
 
     def __post_init__(self):
+        if (not self.phy_guidance or self.phy_source_vl) and not self.phy_enabled:
+            raise ValueError(
+                "phy_guidance / phy_source_vl are ablations OF the physical branch and require "
+                f"phy_enabled=True (got phy_enabled={self.phy_enabled})."
+            )
         if self.phy_enabled and not (self.force_aware and self.force_fusion == "fvlmoe"):
             raise ValueError(
                 "phy_enabled requires force_aware=True and force_fusion='fvlmoe': the physical token is "

@@ -127,6 +127,11 @@ class Pi0(_model.BaseModel):
         self.phy_enabled = config.phy_enabled
         if config.phy_enabled:
             self.safe_force_dim = config.safe_force_dim
+            # Ablation switches (outlines/todo_ablation_switches.md). Both defaults are PiVLA, and
+            # Pi0Config.__post_init__ refuses a non-default value when phy_enabled=False, so reading
+            # them only inside this branch is safe.
+            self.phy_guidance = config.phy_guidance
+            self.phy_source_vl = config.phy_source_vl
             self.lambda_dist = config.lambda_dist
             self.lambda_proto = config.lambda_proto
             self.phy_proto_ramp_start = config.phy_proto_ramp_start
@@ -152,7 +157,10 @@ class Pi0(_model.BaseModel):
         self.deterministic = True
 
     def _force_guidance(
-        self, prefix_out: at.Float[at.Array, "b n d"], force: at.Float[at.Array, "b f"]
+        self,
+        prefix_out: at.Float[at.Array, "b n d"],
+        force: at.Float[at.Array, "b f"],
+        prefix_mask: at.Bool[at.Array, "b n"] | None = None,
     ) -> tuple[at.Float[at.Array, "b t da"], dict[str, at.Array] | None]:
         """M2 (FVLMoE) additive guidance, plus the physical-branch outputs when enabled.
 
@@ -168,10 +176,30 @@ class Pi0(_model.BaseModel):
 
         fused, hidden = self.fvlmoe(prefix_out, force_token, return_hidden=True)
         g_fvl = fused[:, -self.action_horizon :, :]
-        # The last *token* of the fused hidden is the appended force token, which has attended to
-        # every prefix position (plan rule 1). Not the last feature dimension.
-        z_phy = self.phy_proj(hidden[:, -1, :])
-        g_phy = self.phy_action_proj(z_phy)
+        if self.phy_source_vl:
+            # B3: the last VALID prefix token, pre-fusion. `hidden[:, -1]` would be the fused force
+            # token (the thing we are ablating away), and `prefix_out[:, -1]` is often padding --
+            # the prefix is padded to a fixed length, so the index must come from the mask.
+            if prefix_mask is None:
+                raise ValueError("phy_source_vl=True requires prefix_mask at every _force_guidance call site.")
+            last = jnp.sum(prefix_mask, axis=1) - 1
+            phy_src = jnp.take_along_axis(prefix_out, last[:, None, None], axis=1)[:, 0]
+        else:
+            # The last *token* of the fused hidden is the appended force token, which has attended to
+            # every prefix position (plan rule 1). Not the last feature dimension.
+            phy_src = hidden[:, -1, :]
+        z_phy = self.phy_proj(phy_src)
+        if self.phy_guidance:
+            g_phy = self.phy_action_proj(z_phy)
+            g_phy_rms = jnp.sqrt(jnp.mean(g_phy.astype(jnp.float32) ** 2))
+            guidance = g_fvl + g_phy.astype(g_fvl.dtype)
+        else:
+            # B2: the module stays INSTANTIATED so the parameter tree -- and hence the checkpoint
+            # layout and the capacity argument against B1 -- matches the full model exactly. Its
+            # output is simply never added, so it receives no gradient. Report 0 so `g_phy_rel`
+            # reads "pathway off" in the logs instead of a frozen-at-init number.
+            g_phy_rms = jnp.zeros((), jnp.float32)
+            guidance = g_fvl
         mu_norm, sigma_norm = self.phy_dist_head(z_phy)
         phy = {
             "z_phy": z_phy,
@@ -185,9 +213,9 @@ class Pi0(_model.BaseModel):
             # Diagnostics: is the physical guidance actually big enough to move the action head, or
             # is it decorative next to ForceVLA's own guidance? Compared as a ratio downstream.
             "g_fvl_rms": jnp.sqrt(jnp.mean(g_fvl.astype(jnp.float32) ** 2)),
-            "g_phy_rms": jnp.sqrt(jnp.mean(g_phy.astype(jnp.float32) ** 2)),
+            "g_phy_rms": g_phy_rms,
         }
-        return g_fvl + g_phy.astype(g_fvl.dtype), phy
+        return guidance, phy
 
     def probe_features(self, observation: _model.Observation) -> dict[str, at.Array]:
         """Frozen internal representations for offline probing (no sampling, no gradients).
@@ -225,7 +253,15 @@ class Pi0(_model.BaseModel):
             fused = hidden[:, -1, :]
             feats["fused_force_token"] = fused.astype(jnp.float32)
             if self.phy_enabled:
-                feats["z_phy"] = self.phy_proj(fused).astype(jnp.float32)
+                # B3: probe the token the model actually uses, or the readout describes something
+                # this checkpoint has never seen. Read from `prefix_out` (model dtype), NOT from the
+                # already-float32 `feats["vl_prefix_last"]`.
+                if self.phy_source_vl:
+                    last_idx = jnp.sum(prefix_mask, axis=1) - 1
+                    phy_src = jnp.take_along_axis(prefix_out, last_idx[:, None, None], axis=1)[:, 0]
+                else:
+                    phy_src = fused
+                feats["z_phy"] = self.phy_proj(phy_src).astype(jnp.float32)
         return feats
 
     @at.typecheck
@@ -354,7 +390,7 @@ class Pi0(_model.BaseModel):
             # tokens from E_FVLMoE"); the force token attends to all prefix positions, so they are
             # force-dependent. Cast back to the action dtype so M2's action head runs at the same
             # precision as M1/baseline (FVLMoE computes internally in float32 for stable routing).
-            guidance, phy = self._force_guidance(prefix_out, observation.force)
+            guidance, phy = self._force_guidance(prefix_out, observation.force, prefix_mask)
             action_hidden = action_hidden + guidance.astype(action_hidden.dtype)
         v_t = self.action_out_proj(action_hidden)
 
@@ -543,7 +579,7 @@ class Pi0(_model.BaseModel):
         guidance = None
         physical: dict[str, at.Array] = {}
         if self.force_aware and self.force_fusion == "fvlmoe" and observation.force is not None:
-            guidance, phy = self._force_guidance(prefix_out, observation.force)
+            guidance, phy = self._force_guidance(prefix_out, observation.force, prefix_mask)
             if phy is not None:
                 # float32 so a bfloat16 serving model still logs full-precision readouts.
                 physical = {

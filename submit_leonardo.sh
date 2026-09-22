@@ -91,6 +91,27 @@ case "$MODE" in
     NUM_CPUS=16
     MEMORY=120G
     ;;
+  smoke_task12_v2_archonly)
+    CONFIG_FILE=train_config_leonardo_smoke_task12_v2_archonly.conf
+    WALLTIME=03:00:00
+    NUM_GPUS=1
+    NUM_CPUS=16
+    MEMORY=120G
+    ;;
+  smoke_task12_v2_noguid)
+    CONFIG_FILE=train_config_leonardo_smoke_task12_v2_noguid.conf
+    WALLTIME=03:00:00
+    NUM_GPUS=1
+    NUM_CPUS=16
+    MEMORY=120G
+    ;;
+  smoke_task12_v2_vltoken)
+    CONFIG_FILE=train_config_leonardo_smoke_task12_v2_vltoken.conf
+    WALLTIME=03:00:00
+    NUM_GPUS=1
+    NUM_CPUS=16
+    MEMORY=120G
+    ;;
   full_task12_v2)
     CONFIG_FILE=train_config_task12_v2.conf
     WALLTIME=24:00:00
@@ -112,8 +133,32 @@ case "$MODE" in
     NUM_CPUS=16
     MEMORY=120G
     ;;
+  # Ablation B1 architecture-only (outlines/todo_ablation_switches.md §2) -- same resources as full_task12_v2.
+  full_task12_v2_archonly)
+    CONFIG_FILE=train_config_task12_v2_archonly.conf
+    WALLTIME=24:00:00
+    NUM_GPUS=1
+    NUM_CPUS=16
+    MEMORY=120G
+    ;;
+  # Ablation B2 no extra guidance (outlines/todo_ablation_switches.md §2) -- same resources as full_task12_v2.
+  full_task12_v2_noguid)
+    CONFIG_FILE=train_config_task12_v2_noguid.conf
+    WALLTIME=24:00:00
+    NUM_GPUS=1
+    NUM_CPUS=16
+    MEMORY=120G
+    ;;
+  # Ablation B3 vision-language token (outlines/todo_ablation_switches.md §2) -- same resources as full_task12_v2.
+  full_task12_v2_vltoken)
+    CONFIG_FILE=train_config_task12_v2_vltoken.conf
+    WALLTIME=24:00:00
+    NUM_GPUS=1
+    NUM_CPUS=16
+    MEMORY=120G
+    ;;
   *)
-    echo "Usage: bash submit_leonardo.sh [smoke|smoke4|full|smoke_20260905|full_20260905|smoke_combined|full_combined|smoke_task12|full_task12|full_task12_forcevla|full_task12_noforce|smoke_task12_v2|full_task12_v2|full_task12_v2_forcevla|full_task12_v2_noforce]" >&2
+    echo "Usage: bash submit_leonardo.sh [smoke|smoke4|full|smoke_20260905|full_20260905|smoke_combined|full_combined|smoke_task12|full_task12|full_task12_forcevla|full_task12_noforce|smoke_task12_v2|smoke_task12_v2_archonly|smoke_task12_v2_noguid|smoke_task12_v2_vltoken|full_task12_v2|full_task12_v2_forcevla|full_task12_v2_noforce|full_task12_v2_archonly|full_task12_v2_noguid|full_task12_v2_vltoken]" >&2
     exit 2
     ;;
 esac

@@ -313,3 +313,143 @@ def test_learnable_gain_scales_g_phy_and_is_logged():
 def test_gain_default_preserves_legacy_behavior():
     """phy_action_gain_init defaults to 1.0 so every pre-contract config is bit-identical."""
     assert pi0_config.Pi0Config(action_dim=32, action_horizon=4).phy_action_gain_init == 1.0
+
+
+# === Ablation switches B1/B2/B3 (outlines/todo_ablation_switches.md §4) ============================
+
+
+def _padded_prefix(model, *, batch_size: int = 2, seq_len: int = 5, seed: int = 0):
+    """A prefix whose LAST COLUMN IS PADDING for every row, with two different valid lengths.
+
+    The real prefix is padded to a fixed length, so `prefix_out[:, -1]` is usually padding. Every B3
+    test needs that property to be able to fail.
+    """
+    d = model.phy_proj.fc_in.in_features
+    rng = np.random.default_rng(seed)
+    prefix_out = jnp.asarray(rng.normal(size=(batch_size, seq_len, d)), dtype=jnp.float32)
+    lengths = np.asarray([seq_len - 2, seq_len - 1])[:batch_size]
+    mask = jnp.asarray(np.arange(seq_len)[None, :] < lengths[:, None])
+    return prefix_out, mask, lengths
+
+
+def _fake_force(model, batch_size: int = 2, seed: int = 1):
+    rng = np.random.default_rng(seed)
+    return jnp.asarray(rng.normal(size=(batch_size, model.force_proj.in_features)), dtype=jnp.float32)
+
+
+def test_ablation_switch_defaults_are_bit_identical_to_pivla():
+    """§0 invariant: the defaults ARE PiVLA, so the three main arms need no edit.
+
+    Passing the switches explicitly at their defaults must produce the same numbers as not passing
+    them at all -- otherwise adding the fields silently moved pi0_draftvla_task12_v2.
+    """
+    implicit = _config_task12().create(jax.random.key(0))
+    explicit = _config_task12(phy_guidance=True, phy_source_vl=False).create(jax.random.key(0))
+
+    prefix_out, mask, _ = _padded_prefix(implicit)
+    force = _fake_force(implicit)
+
+    g_implicit, phy_implicit = implicit._force_guidance(prefix_out, force, mask)
+    g_explicit, phy_explicit = explicit._force_guidance(prefix_out, force, mask)
+
+    np.testing.assert_array_equal(np.asarray(g_explicit), np.asarray(g_implicit))
+    for k in phy_implicit:
+        np.testing.assert_array_equal(np.asarray(phy_explicit[k]), np.asarray(phy_implicit[k]), err_msg=k)
+
+
+def test_no_guidance_removes_g_phy_but_keeps_the_supervision():
+    """B2: the DIRECT PATHWAY goes away, the supervision does not.
+
+    guidance must collapse to G_fvl exactly, g_phy_rms must read 0 rather than a frozen-at-init
+    number, and -- the point of the arm -- z_phy must still be trained by the auxiliary losses.
+    """
+    model = _config_task12(phy_guidance=False).create(jax.random.key(0))
+    prefix_out, mask, _ = _padded_prefix(model)
+    force = _fake_force(model)
+
+    guidance, phy = model._force_guidance(prefix_out, force, mask)
+
+    force_token = model.force_proj(force)[:, None, :]
+    g_fvl = model.fvlmoe(prefix_out, force_token)[:, -model.action_horizon :, :]
+    np.testing.assert_array_equal(np.asarray(guidance), np.asarray(g_fvl))
+    assert float(phy["g_phy_rms"]) == 0.0
+
+    # The module must still be in the parameter tree (capacity parity with B1), just unused.
+    observation, actions = _config_task12().fake_obs(batch_size=2), _config_task12().fake_act(batch_size=2)
+    aux = _aux_task12(2, valid=True)
+
+    def loss_fn(m):
+        total, _ = m.compute_train_losses(jax.random.key(0), observation, actions, train=True, aux=aux)
+        return total
+
+    grads = nnx.grad(loss_fn)(model)
+    g_action = jax.tree.leaves(grads["phy_action_proj"])
+    assert g_action, "phy_action_proj vanished from the parameter tree: B1 is no longer a clean capacity control"
+    assert all(jnp.all(g == 0) for g in g_action), "phy_action_proj still receives gradient: G_phy was not removed"
+    for name in ("phy_proj", "phy_dist_head"):
+        leaves = jax.tree.leaves(grads[name])
+        assert any(jnp.any(g != 0) for g in leaves), f"{name} lost its gradient: B2 deleted the supervision too"
+
+
+def test_vl_source_reads_the_last_valid_prefix_token_not_padding():
+    """B3: z_phy comes from the last VALID prefix token, taken before fusion."""
+    model = _config_task12(phy_source_vl=True).create(jax.random.key(0))
+    prefix_out, mask, lengths = _padded_prefix(model)
+    force = _fake_force(model)
+
+    _, phy = model._force_guidance(prefix_out, force, mask)
+
+    expected = model.phy_proj(jnp.stack([prefix_out[i, L - 1] for i, L in enumerate(lengths)]))
+    np.testing.assert_allclose(np.asarray(phy["z_phy"]), np.asarray(expected), rtol=1e-6)
+
+    force_token = model.force_proj(force)[:, None, :]
+    _, hidden = model.fvlmoe(prefix_out, force_token, return_hidden=True)
+    fused_z = model.phy_proj(hidden[:, -1, :])
+    padding_z = model.phy_proj(prefix_out[:, -1, :])
+    assert not np.allclose(np.asarray(phy["z_phy"]), np.asarray(fused_z)), "z_phy came from the FUSED force token"
+    assert not np.allclose(np.asarray(phy["z_phy"]), np.asarray(padding_z)), "z_phy came from a PADDING token"
+
+
+def test_vl_source_z_phy_is_independent_of_the_force_input():
+    """B3's whole claim: this representation cannot see the force. The one test that catches a leak.
+
+    If the implementation touched any post-fusion quantity the other four tests would still pass.
+    """
+    model = _config_task12(phy_source_vl=True).create(jax.random.key(0))
+    prefix_out, mask, _ = _padded_prefix(model)
+    force_a = _fake_force(model, seed=1)
+    force_b = _fake_force(model, seed=2)
+
+    _, phy_a = model._force_guidance(prefix_out, force_a, mask)
+    _, phy_b = model._force_guidance(prefix_out, force_b, mask)
+    np.testing.assert_array_equal(np.asarray(phy_b["z_phy"]), np.asarray(phy_a["z_phy"]))
+
+    # ...while the force still reaches the action expert through FVLMoE, which is what makes B3 an
+    # ablation of the SOURCE rather than of the force input.
+    def g_fvl(force):
+        token = model.force_proj(force)[:, None, :]
+        return model.fvlmoe(prefix_out, token)[:, -model.action_horizon :, :]
+
+    assert not np.allclose(np.asarray(g_fvl(force_a)), np.asarray(g_fvl(force_b))), "G_fvl ignored the force input"
+
+
+@pytest.mark.parametrize("phy_source_vl", [False, True])
+def test_probe_features_z_phy_follows_the_source_switch(phy_source_vl):
+    """The offline probe must read the token the model actually uses, on both settings."""
+    from openpi.models.pi0 import make_attn_mask
+
+    config = _config_task12(phy_source_vl=phy_source_vl)
+    model = config.create(jax.random.key(0))
+    model.eval()
+    observation = config.fake_obs(batch_size=2)
+
+    obs = _model.preprocess_observation(None, observation, train=False)
+    prefix_tokens, prefix_mask, prefix_ar_mask = model.embed_prefix(obs)
+    positions = jnp.cumsum(prefix_mask, axis=1) - 1
+    (prefix_out, _), _ = model.PaliGemma.llm(
+        [prefix_tokens, None], mask=make_attn_mask(prefix_mask, prefix_ar_mask), positions=positions
+    )
+    _, phy = model._force_guidance(prefix_out, obs.force, prefix_mask)
+
+    feats = model.probe_features(observation)
+    np.testing.assert_allclose(np.asarray(feats["z_phy"]), np.asarray(phy["z_phy"], dtype=np.float32), rtol=1e-6)
